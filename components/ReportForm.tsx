@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import type { PetReport } from '../types';
 import { analyzePetImage } from '../services/geminiService';
 import { MapPinIcon, TrashIcon } from './icons';
+import { db } from '../src/firebase';
+import { addDoc, collection, updateDoc, doc } from 'firebase/firestore';
 
 // Declare Leaflet on window
 declare global {
@@ -14,7 +16,7 @@ interface ReportFormProps {
   formType: 'lost' | 'found';
   onSubmit: (report: Omit<PetReport, 'id' | 'type' | 'userId' | 'status' | 'date'>) => void;
   onCancel: () => void;
-  initialData?: Omit<PetReport, 'id' | 'type' | 'userId'>;
+  initialData?: PetReport; // Теперь включает id для редактирования
   defaultContactInfo?: string;
 }
 
@@ -150,10 +152,10 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const files: File[] = Array.from(e.target.files);
-      const remainingSlots = 5 - photos.length;
+      const remainingSlots = 3 - photos.length;
       
       if (remainingSlots <= 0) {
-          setError("Максимальное количество фотографий: 5");
+          setError("Максимальное количество фотографий: 3");
           return;
       }
 
@@ -161,7 +163,7 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
       
       let processedCount = 0;
       const shouldAnalyze = photos.length === 0 && breed === '';
-
+      
       filesToProcess.forEach(file => {
         const reader = new FileReader();
         reader.onload = (event) => {
@@ -169,7 +171,7 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
           img.src = event.target?.result as string;
           img.onload = async () => {
             const MAX_WIDTH = 800;
-            const MAX_HEIGHT = 600;
+            const MAX_HEIGHT = 800;
             let width = img.width;
             let height = img.height;
 
@@ -193,7 +195,8 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
 
              if (ctx) {
                 ctx.drawImage(img, 0, 0, width, height);
-                dataUrl = canvas.toDataURL(file.type, 0.9);
+                // Сохраняем как JPEG с качеством 0.6 в формате Base64
+                dataUrl = canvas.toDataURL('image/jpeg', 0.6);
              }
             
             setPhotos(prev => [...prev, dataUrl]);
@@ -271,7 +274,7 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
     );
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (photos.length === 0) {
       setError('Пожалуйста, загрузите хотя бы одну фотографию.');
@@ -279,7 +282,8 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
     }
     
     setError('');
-    onSubmit({
+    
+    const reportData: Omit<PetReport, 'id' | 'type' | 'userId' | 'status' | 'date'> & { mainPhoto: string | null } = {
       species,
       petName,
       breed: breed || 'Не указана',
@@ -290,7 +294,52 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
       description: description || 'Нет описания',
       contactInfo: contactInfo || 'Не указано',
       photos,
-    });
+      mainPhoto: photos[0] || null,
+    };
+
+    try {
+      // Получаем текущего пользователя из localStorage
+      const currentUser = localStorage.getItem('petFinderUser');
+      
+      if (initialData && initialData.id) {
+        // Редактирование существующего объявления
+        const reportRef = doc(db, 'reports', initialData.id);
+        await updateDoc(reportRef, {
+          ...reportData,
+          mainPhoto: photos[0] || null,
+        });
+        console.log('Объявление обновлено в reports');
+      } else {
+        // Создание нового объявления
+        const fullReportData = {
+          ...reportData,
+          type: formType,
+          userId: currentUser || 'anonymous',
+          status: 'active' as const,
+          date: new Date().toISOString()
+        };
+        
+        await addDoc(collection(db, 'reports'), fullReportData);
+        console.log('УРА! Объявление сохранено в reports');
+      }
+
+      // Передаём данные наверх
+      onSubmit(reportData);
+
+      // Очищаем форму
+      setSpecies('dog');
+      setPetName('');
+      setBreed('');
+      setColor('');
+      setLastSeenLocation('');
+      setCoordinates(null);
+      setDescription('');
+      setContactInfo(defaultContactInfo || '');
+      setPhotos([]);
+    } catch (err) {
+      console.error('Ошибка при сохранении объявления в Firestore:', err);
+      setError('Не удалось сохранить объявление. Попробуйте еще раз.');
+    }
   };
 
   const title = initialData 
@@ -309,12 +358,12 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
         {/* Photo Upload Section */}
         <div className={`transition-all duration-500 ${isAnalyzing ? 'opacity-75 pointer-events-none' : ''}`}>
             <label className="block text-sm font-medium text-slate-700 mb-2">
-                Фотографии ({photos.length}/5)* 
+                Фотографии ({photos.length}/3)* 
                 <span className="text-xs font-normal text-slate-500 ml-2 hidden sm:inline">(Первое фото будет использовано для ИИ-анализа)</span>
             </label>
             
             {photos.length > 0 && (
-                <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 md:gap-4 mb-4">
+                <div className="grid grid-cols-3 sm:grid-cols-3 gap-2 md:gap-4 mb-4">
                     {photos.map((photo, index) => (
                         <div key={index} className="relative group aspect-square">
                             <img src={photo} alt={`Pet ${index + 1}`} className="w-full h-full object-cover rounded-lg shadow-sm border border-slate-200" />
@@ -338,7 +387,7 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
                 </div>
             )}
 
-            {photos.length < 5 && (
+            {photos.length < 3 && (
                 <div className="mt-1 flex items-center justify-center px-4 py-4 md:px-6 md:pt-5 md:pb-6 border-2 border-slate-300 border-dashed rounded-md bg-slate-50 hover:bg-slate-100 transition-colors">
                     <div className="space-y-1 text-center">
                         <svg className="mx-auto h-8 w-8 md:h-12 md:w-12 text-slate-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
@@ -351,7 +400,7 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
                             </label>
                             <p className="pl-1 hidden sm:inline">или перетащите</p>
                         </div>
-                        <p className="text-xs text-slate-500">PNG, JPG, GIF до 5 штук</p>
+                        <p className="text-xs text-slate-500">PNG, JPG, GIF до 3 штук</p>
                     </div>
                 </div>
             )}

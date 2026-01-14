@@ -4,7 +4,10 @@ import type { PetReport, MatchResult, Notification, UserProfile } from './types'
 import { findPetMatches } from './services/geminiService';
 import { PetCard } from './components/PetCard';
 import { ReportForm } from './components/ReportForm';
-import { PawIcon, SearchIcon, PlusCircleIcon, LogoIcon, UserCircleIcon, BellIcon, GoogleIcon, MapPinIcon, PhoneIcon, PencilIcon, CalendarIcon, ChevronDownIcon, CrosshairIcon, MapIcon } from './components/icons';
+import { PawIcon, SearchIcon, PlusCircleIcon, LogoIcon, UserCircleIcon, BellIcon, GoogleIcon, MapPinIcon, PhoneIcon, PencilIcon, CalendarIcon, ChevronDownIcon, CrosshairIcon, MapIcon, CameraIcon } from './components/icons';
+import { auth, db } from './src/firebase';
+import { signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged } from 'firebase/auth';
+import { doc, setDoc, getDoc, collection, getDocs, onSnapshot, deleteDoc, updateDoc } from 'firebase/firestore';
 
 type View = 'home' | 'reportLost' | 'reportFound' | 'matching' | 'results' | 'account' | 'login' | 'editReport' | 'lostPetDetail' | 'petDetail' | 'publicProfile' | 'map' | 'privacy' | 'terms';
 
@@ -77,12 +80,220 @@ function deg2rad(deg: number) {
   return deg * (Math.PI / 180);
 }
 
+const XIcon: React.FC<{ className?: string }> = ({ className }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={className}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+  </svg>
+);
+
+const LoginModal: React.FC<{ isOpen: boolean; onClose: () => void; onLoginSuccess: (user: { uid: string; displayName: string | null; email: string | null }) => void }> = ({ isOpen, onClose, onLoginSuccess }) => {
+  const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  // Сброс состояния при закрытии модального окна
+  useEffect(() => {
+    if (!isOpen) {
+      setActiveTab('login');
+      setEmail('');
+      setPassword('');
+      setError(null);
+      setLoading(false);
+    }
+  }, [isOpen]);
+
+  const handleGoogleLogin = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+      onLoginSuccess({
+        uid: user.uid,
+        displayName: user.displayName,
+        email: user.email
+      });
+      onClose();
+    } catch (err: any) {
+      setError(err.message || 'Ошибка при входе через Google');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEmailAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setLoading(true);
+      setError(null);
+      
+      let result;
+      if (activeTab === 'login') {
+        result = await signInWithEmailAndPassword(auth, email, password);
+      } else {
+        result = await createUserWithEmailAndPassword(auth, email, password);
+      }
+      
+      const user = result.user;
+      onLoginSuccess({
+        uid: user.uid,
+        displayName: user.displayName,
+        email: user.email
+      });
+      onClose();
+      setEmail('');
+      setPassword('');
+    } catch (err: any) {
+      const errorMessage = activeTab === 'login' 
+        ? 'Ошибка при входе' 
+        : 'Ошибка при регистрации';
+      setError(err.message || errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      {/* Затемненный фон */}
+      <div 
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      
+      {/* Модальное окно */}
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6 md:p-8">
+        {/* Кнопка закрытия */}
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors"
+        >
+          <XIcon className="w-6 h-6" />
+        </button>
+
+        {/* Заголовок */}
+        <h2 className="text-2xl md:text-3xl font-bold text-slate-800 mb-6">
+          {activeTab === 'login' ? 'Вход в PetFinder' : 'Регистрация в PetFinder'}
+        </h2>
+
+        {/* Табы */}
+        <div className="flex gap-2 mb-6 border-b border-slate-200">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('login');
+              setError(null);
+            }}
+            className={`flex-1 py-2 px-4 text-sm font-medium transition-colors border-b-2 ${
+              activeTab === 'login'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            Вход
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('register');
+              setError(null);
+            }}
+            className={`flex-1 py-2 px-4 text-sm font-medium transition-colors border-b-2 ${
+              activeTab === 'register'
+                ? 'border-indigo-600 text-indigo-600'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            Регистрация
+          </button>
+        </div>
+
+        {/* Ошибка */}
+        {error && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+            {error}
+          </div>
+        )}
+
+        {/* Кнопка входа через Google */}
+        <button
+          onClick={handleGoogleLogin}
+          disabled={loading}
+          className="w-full mb-6 inline-flex items-center justify-center gap-3 py-3 px-4 border border-slate-300 rounded-lg shadow-sm bg-white text-base font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <GoogleIcon className="w-5 h-5" />
+          <span>Войти через Google</span>
+        </button>
+
+        {/* Разделитель */}
+        <div className="relative mb-6">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-slate-300"></div>
+          </div>
+          <div className="relative flex justify-center text-sm">
+            <span className="px-2 bg-white text-slate-500">или</span>
+          </div>
+        </div>
+
+        {/* Форма входа/регистрации по Email/Пароль */}
+        <form onSubmit={handleEmailAuth} className="space-y-4">
+          <div>
+            <label htmlFor="email" className="block text-sm font-medium text-slate-700 mb-2">
+              Email
+            </label>
+            <input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              placeholder="your@email.com"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-2">
+              Пароль
+            </label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              placeholder="••••••••"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-3 px-4 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading 
+              ? (activeTab === 'login' ? 'Вход...' : 'Регистрация...') 
+              : (activeTab === 'login' ? 'Войти' : 'Зарегистрироваться')
+            }
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 const Header = ({ currentUser, onViewChange, currentView, onLogout, onLogin }: { currentUser: string | null, onViewChange: (view: View) => void, currentView: View, onLogout: () => void, onLogin: () => void }) => (
     <header className="bg-white shadow-md sticky top-0 z-50">
         <nav className="container mx-auto px-4 md:px-6 py-2.5 md:py-3 flex justify-between items-center">
             <div className="flex items-center cursor-pointer" onClick={() => onViewChange('home')}>
                 <LogoIcon className="w-6 h-6 md:w-8 md:h-8 text-indigo-600" />
-                <h1 className="ml-2 md:ml-3 text-lg md:text-2xl font-bold text-slate-800 truncate max-w-[150px] sm:max-w-none">Поиск Питомцев</h1>
+                <h1 className="ml-2 md:ml-3 text-lg md:text-2xl font-bold text-orange-500 truncate max-w-[150px] sm:max-w-none">Поиск Питомцев</h1>
             </div>
             
              <div className="hidden md:flex gap-6 absolute left-1/2 transform -translate-x-1/2">
@@ -253,19 +464,17 @@ const PrivacyPolicyView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     );
 };
 
-const MapView: React.FC<{ 
-    lostPets: PetReport[], 
-    foundPets: PetReport[],
-    onPetClick: (pet: PetReport) => void 
-}> = ({ lostPets, foundPets, onPetClick }) => {
+const MapView: React.FC<{
+    reports: PetReport[];
+    onPetClick: (pet: PetReport) => void
+}> = ({ reports, onPetClick }) => {
     const mapRef = useRef<HTMLDivElement>(null);
     const mapInstanceRef = useRef<any>(null);
 
-    // Combine and filter active pets with coordinates
+    // Filter active pets with coordinates
     const activePets = useMemo(() => {
-        return [...lostPets, ...foundPets]
-            .filter(p => p.status !== 'resolved' && p.lat && p.lng);
-    }, [lostPets, foundPets]);
+        return reports.filter(p => p.status !== 'resolved' && p.lat && p.lng);
+    }, [reports]);
 
     useEffect(() => {
         if (!mapRef.current || !window.L) return;
@@ -323,32 +532,53 @@ const MapView: React.FC<{
 
             const iconColor = pet.type === 'lost' ? '#EF4444' : '#22C55E'; // Red-500 or Green-500
             const marker = window.L.marker([pet.lat, pet.lng], { icon: createIcon(iconColor) });
-            
+
             // Create popup content
             const container = document.createElement('div');
             container.className = "flex flex-col gap-2 min-w-[220px]";
-            
+
+            // Use mainPhoto instead of photos[0]
             const img = document.createElement('img');
-            img.src = pet.photos?.[0] || 'https://via.placeholder.com/150?text=No+Photo';
-            img.className = "w-full h-32 object-cover rounded-md";
+            img.src = pet.mainPhoto || pet.photos?.[0] || 'https://via.placeholder.com/150?text=No+Photo';
+            img.className = "w-full h-32 object-cover rounded-md shadow-sm";
             container.appendChild(img);
 
+            // Status badge - убеждаемся, что type определен
+            const petType = pet.type || 'lost'; // Значение по умолчанию
+            const isLost = petType === 'lost';
+            const statusBadge = document.createElement('div');
+            statusBadge.innerText = isLost ? 'Потерян' : 'Найден';
+            statusBadge.className = `inline-block px-2 py-1 rounded text-xs font-bold ${
+                isLost ? 'bg-red-500 text-white' : 'bg-green-500 text-white'
+            }`;
+            statusBadge.style.width = 'fit-content';
+            container.appendChild(statusBadge);
+
             const title = document.createElement('h3');
-            title.innerText = pet.petName || (pet.type === 'lost' ? 'Потерян' : 'Найден');
-            title.className = "font-bold text-slate-800 text-lg m-0 leading-tight";
+            title.innerText = pet.petName || 'Без клички';
+            title.className = `font-bold text-lg m-0 leading-tight ${
+                isLost ? 'text-red-600' : 'text-green-600'
+            }`;
             container.appendChild(title);
 
             const subtitle = document.createElement('p');
-            subtitle.innerText = `${pet.breed} • ${pet.color}`;
+            subtitle.innerText = `${pet.breed || 'Не указана'} • ${pet.color || 'Не указан'}`;
             subtitle.className = "text-sm text-slate-500 m-0 mt-0.5 uppercase tracking-wide";
             container.appendChild(subtitle);
-            
+
             const btn = document.createElement('button');
             btn.innerText = "Подробнее";
             btn.className = "mt-2 px-3 py-2 bg-indigo-600 text-white text-sm font-bold rounded hover:bg-indigo-700 transition-colors w-full";
             btn.onclick = (e) => {
                 e.stopPropagation();
-                onPetClick(pet);
+                // Данные уже нормализованы при загрузке, но убеждаемся, что type определен
+                // для совместимости со старыми записями
+                const petToShow: PetReport = {
+                    ...pet,
+                    type: pet.type || 'lost' // Гарантируем наличие type
+                };
+                // Вызываем onPetClick, который откроет то же модальное окно, что и из списка
+                onPetClick(petToShow);
             };
             container.appendChild(btn);
 
@@ -368,10 +598,22 @@ const MapView: React.FC<{
 
     }, [activePets, onPetClick]);
 
+    const loading = false; // Больше не нужно, данные приходят через пропсы
+
     return (
         <div className="relative w-full h-[calc(100vh-64px)] z-0">
             <div ref={mapRef} className="w-full h-full" />
-            
+
+            {/* Loading overlay */}
+            {loading && (
+                <div className="absolute inset-0 bg-white bg-opacity-80 flex items-center justify-center z-[500]">
+                    <div className="flex flex-col items-center gap-3">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                        <p className="text-slate-600 font-medium">Загрузка объявлений...</p>
+                    </div>
+                </div>
+            )}
+
             {/* Legend Overlay */}
             <div className="absolute top-4 right-4 bg-white p-4 rounded-lg shadow-lg z-[400] text-sm font-medium space-y-2">
                 <div className="flex items-center gap-2">
@@ -878,7 +1120,7 @@ const AccountView: React.FC<{
     allFoundPets: PetReport[];
     notifications: Notification[];
     userProfile: UserProfile | null;
-    onSaveProfile: (profile: UserProfile) => void;
+    onSaveProfile: (profile: UserProfile, photoBase64?: string) => void;
     onEdit: (pet: PetReport) => void;
     onDelete: (petId: string) => void;
     onToggleStatus: (pet: PetReport) => void;
@@ -895,18 +1137,111 @@ const AccountView: React.FC<{
     const [name, setName] = useState(userProfile?.name || '');
     const [phone, setPhone] = useState(userProfile?.phone || '');
     const [email, setEmail] = useState(userProfile?.email || '');
+    const [photoBase64, setPhotoBase64] = useState<string>('');
     const [isSavingProfile, setIsSavingProfile] = useState(false);
     const [isNotificationsExpanded, setIsNotificationsExpanded] = useState(true);
 
-    const handleProfileSubmit = (e: React.FormEvent) => {
+    // Функция для сжатия изображения
+    const compressImage = (file: File): Promise<string> => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.src = event.target?.result as string;
+                img.onload = () => {
+                    const MAX_WIDTH = 1024;
+                    const MAX_HEIGHT = 1024;
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > height) {
+                        if (width > MAX_WIDTH) {
+                            height *= MAX_WIDTH / width;
+                            width = MAX_WIDTH;
+                        }
+                    } else {
+                        if (height > MAX_HEIGHT) {
+                            width *= MAX_HEIGHT / height;
+                            height = MAX_HEIGHT;
+                        }
+                    }
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+
+                    if (ctx) {
+                        ctx.drawImage(img, 0, 0, width, height);
+                        const dataUrl = canvas.toDataURL(file.type, 0.9);
+                        resolve(dataUrl);
+                    } else {
+                        reject(new Error('Failed to get canvas context'));
+                    }
+                };
+                img.onerror = reject;
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+    };
+
+    const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files.length > 0) {
+            const file = e.target.files[0];
+            try {
+                const compressedImage = await compressImage(file);
+                setPhotoBase64(compressedImage);
+            } catch (error) {
+                console.error('Error compressing image:', error);
+            }
+        }
+    };
+
+    // Загрузка данных из Firestore при монтировании компонента
+    useEffect(() => {
+        const loadUserProfile = async () => {
+            try {
+                const userId = localStorage.getItem('petFinderUserId');
+                if (userId && currentUser) {
+                    const userDocRef = doc(db, 'users', userId);
+                    const userDocSnap = await getDoc(userDocRef);
+                    
+                    if (userDocSnap.exists()) {
+                        const data = userDocSnap.data();
+                        setName(data.name || '');
+                        setPhone(data.phone || '');
+                        setEmail(data.email || '');
+                        setPhotoBase64(data.photoBase64 || '');
+                        
+                        // Обновляем локальный профиль
+                        onSaveProfile({
+                            userId: currentUser,
+                            name: data.name || '',
+                            phone: data.phone || '',
+                            email: data.email || ''
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading user profile from Firestore:', error);
+            }
+        };
+        
+        loadUserProfile();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentUser]);
+
+    const handleProfileSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsSavingProfile(true);
-        onSaveProfile({
+        await onSaveProfile({
             userId: currentUser,
             name,
             phone,
             email
-        });
+        }, photoBase64); // Передаем photoBase64 вместе с профилем
+        
         setTimeout(() => setIsSavingProfile(false), 1000);
     };
 
@@ -920,6 +1255,35 @@ const AccountView: React.FC<{
                      <UserCircleIcon className="w-5 h-5 md:w-6 md:h-6 text-indigo-600"/>
                      Настройки профиля
                  </h3>
+                 
+                 {/* Avatar Upload */}
+                 <div className="mb-6 md:mb-8 flex justify-center">
+                    <label className="cursor-pointer group">
+                        <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleAvatarChange}
+                            className="hidden"
+                        />
+                        <div className="relative w-32 h-32 md:w-40 md:h-40 rounded-full overflow-hidden border-4 border-indigo-200 group-hover:border-indigo-400 transition-colors bg-slate-100 flex items-center justify-center">
+                            {photoBase64 ? (
+                                <img 
+                                    src={photoBase64} 
+                                    alt="Avatar" 
+                                    className="w-full h-full object-cover"
+                                />
+                            ) : (
+                                <CameraIcon className="w-12 h-12 md:w-16 md:h-16 text-slate-400 group-hover:text-indigo-500 transition-colors" />
+                            )}
+                            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                                {photoBase64 && (
+                                    <CameraIcon className="w-8 h-8 md:w-10 md:h-10 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                                )}
+                            </div>
+                        </div>
+                    </label>
+                 </div>
+                 
                  <form onSubmit={handleProfileSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 items-end">
                      <div>
                          <label className="block text-xs md:text-sm font-medium text-slate-700 mb-1">Ваше имя</label>
@@ -1143,8 +1507,12 @@ export default function App() {
     return initial;
   };
 
-  const [lostPets, setLostPets] = useState<PetReport[]>(() => initPets('lostPets', initialLostPets));
-  const [foundPets, setFoundPets] = useState<PetReport[]>(() => initPets('foundPets', initialFoundPets));
+  // Единый источник правды - все объявления из Firebase
+  const [reports, setReports] = useState<PetReport[]>([]);
+  
+  // Computed значения для обратной совместимости
+  const lostPets = useMemo(() => reports.filter(p => p.type === 'lost'), [reports]);
+  const foundPets = useMemo(() => reports.filter(p => p.type === 'found'), [reports]);
   
   // User Profiles storage
   const [profiles, setProfiles] = useState<Record<string, UserProfile>>(() => {
@@ -1173,6 +1541,7 @@ export default function App() {
 
   const [currentUser, setCurrentUser] = useState<string | null>(() => localStorage.getItem('petFinderUser'));
   const [error, setError] = useState<string | undefined>(undefined);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [filterType, setFilterType] = useState<'all' | 'lost' | 'found'>('all');
   const [speciesFilter, setSpeciesFilter] = useState<string>('all');
   const [breedFilter, setBreedFilter] = useState<string>('all');
@@ -1183,20 +1552,7 @@ export default function App() {
     setBreedFilter('all');
   }, [speciesFilter]);
 
-  useEffect(() => { 
-    try {
-      localStorage.setItem('lostPets', JSON.stringify(lostPets)); 
-    } catch (error) {
-      console.error("Failed to save lost pets to localStorage:", error);
-    }
-  }, [lostPets]);
-  useEffect(() => { 
-    try {
-      localStorage.setItem('foundPets', JSON.stringify(foundPets)); 
-    } catch (error) {
-      console.error("Failed to save found pets to localStorage:", error);
-    }
-  }, [foundPets]);
+  // localStorage больше не нужен для reports - данные в Firebase
   useEffect(() => { 
     try {
       localStorage.setItem('notifications', JSON.stringify(notifications)); 
@@ -1213,24 +1569,107 @@ export default function App() {
       }
   }, [profiles]);
 
-  const handleLogin = () => {
-    const mockUser = 'Demo Google User';
-    localStorage.setItem('petFinderUser', mockUser);
-    setCurrentUser(mockUser);
-    setView('home');
+  // Track Firebase auth state changes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        const userName = user.displayName || user.email || `User_${user.uid.slice(0, 6)}`;
+        localStorage.setItem('petFinderUser', userName);
+        localStorage.setItem('petFinderUserId', user.uid);
+        setCurrentUser(userName);
+      } else {
+        // User is signed out
+        if (!localStorage.getItem('petFinderUser')) {
+          setCurrentUser(null);
+        }
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Real-time подписка на коллекцию reports - единый источник правды
+  useEffect(() => {
+    const reportsCollection = collection(db, 'reports');
+    
+    const unsubscribe = onSnapshot(reportsCollection, (snapshot) => {
+      const reportsData = snapshot.docs.map(doc => {
+        const data = doc.data();
+        // Нормализуем данные и убеждаемся, что все обязательные поля присутствуют
+        return {
+          id: doc.id,
+          type: data.type || 'lost',
+          status: data.status || 'active',
+          userId: data.userId || 'unknown',
+          species: data.species || 'dog',
+          petName: data.petName || '',
+          breed: data.breed || 'Не указана',
+          color: data.color || 'Не указан',
+          lastSeenLocation: data.lastSeenLocation || 'Не указано',
+          lat: data.lat,
+          lng: data.lng,
+          description: data.description || '',
+          contactInfo: data.contactInfo || '',
+          photos: data.photos || (data.mainPhoto ? [data.mainPhoto] : []),
+          mainPhoto: data.mainPhoto || data.photos?.[0] || null,
+          date: data.date?.toDate?.()?.toISOString() || data.date || new Date().toISOString()
+        } as PetReport;
+      });
+      
+      setReports(reportsData);
+    }, (error) => {
+      console.error('Error listening to reports:', error);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  const handleLoginSuccess = (user: { uid: string; displayName: string | null; email: string | null }) => {
+    const userName = user.displayName || user.email || `User_${user.uid.slice(0, 6)}`;
+    localStorage.setItem('petFinderUser', userName);
+    localStorage.setItem('petFinderUserId', user.uid);
+    setCurrentUser(userName);
+    setIsLoginModalOpen(false);
   };
   
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      // Sign out from Firebase
+      const { signOut } = await import('firebase/auth');
+      await signOut(auth);
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
     localStorage.removeItem('petFinderUser');
+    localStorage.removeItem('petFinderUserId');
     setCurrentUser(null);
     setView('home');
   };
   
-  const handleSaveProfile = (profile: UserProfile) => {
+  const handleSaveProfile = async (profile: UserProfile, photoBase64?: string) => {
+      // Сохраняем в локальное состояние
       setProfiles(prev => ({
           ...prev,
           [profile.userId]: profile
       }));
+      
+      // Сохраняем в Firestore (используем uid из Firebase Auth)
+      try {
+          const userId = localStorage.getItem('petFinderUserId') || auth.currentUser?.uid;
+          if (userId) {
+              const dataToSave: any = {
+                  name: profile.name,
+                  phone: profile.phone,
+                  email: profile.email
+              };
+              if (photoBase64 !== undefined) {
+                  dataToSave.photoBase64 = photoBase64;
+              }
+              await setDoc(doc(db, 'users', userId), dataToSave, { merge: true }); // merge: true позволяет обновлять только указанные поля
+          }
+      } catch (error) {
+          console.error('Error saving profile to Firestore:', error);
+      }
   };
 
   const handlePetClick = (pet: PetReport) => {
@@ -1245,16 +1684,17 @@ export default function App() {
       setView('publicProfile');
   };
 
-  const handleToggleStatus = (pet: PetReport) => {
+  const handleToggleStatus = async (pet: PetReport) => {
       // Explicitly type status as 'active' | 'resolved' to avoid type widening to string
       const newStatus: 'active' | 'resolved' = pet.status === 'resolved' ? 'active' : 'resolved';
       
-      const updateList = (list: PetReport[]) => list.map(p => p.id === pet.id ? {...p, status: newStatus} : p);
-      
-      if (pet.type === 'lost') {
-          setLostPets(updateList);
-      } else {
-          setFoundPets(updateList);
+      try {
+        const reportRef = doc(db, 'reports', pet.id);
+        await updateDoc(reportRef, { status: newStatus });
+        // onSnapshot автоматически обновит стейт reports
+      } catch (error) {
+        console.error('Error updating report status:', error);
+        alert('Не удалось изменить статус объявления. Попробуйте еще раз.');
       }
   };
 
@@ -1343,45 +1783,31 @@ export default function App() {
         return;
     }
     
+    // Данные уже сохранены в Firebase через ReportForm
+    // onSnapshot автоматически обновит стейт reports
+    
     if (formType === 'lost') {
-      const newReport: PetReport = {
-        ...reportData,
-        id: `lp${Date.now()}`,
-        type: 'lost',
-        status: 'active',
-        userId: currentUser,
-        date: new Date().toISOString()
-      };
-      setLostPets(prevPets => [newReport, ...prevPets]);
-      setCurrentLostPet(newReport);
-      setView('lostPetDetail');
+      // onSnapshot обновит reports автоматически, пользователь увидит объявление в списке
+      setView('home');
     } else if (formType === 'found') {
-      const newReport: PetReport = {
-        ...reportData,
-        id: `fp${Date.now()}`,
-        type: 'found',
-        status: 'active',
-        userId: currentUser,
-        date: new Date().toISOString()
-      };
-      setFoundPets(prevPets => [newReport, ...prevPets]);
       setView('home');
     } else if (formType === 'edit' && editingPet) {
-        const updatePet = (pets: PetReport[]) => pets.map(p => p.id === editingPet.id ? { ...p, ...reportData } : p);
-        if (editingPet.type === 'lost') {
-            setLostPets(updatePet);
-        } else {
-            setFoundPets(updatePet);
-        }
+        // Для редактирования данные уже обновлены в Firebase через ReportForm
         setEditingPet(null);
         setView('account');
     }
   }, [currentUser, editingPet]);
   
-  const handleDelete = (petId: string) => {
+  const handleDelete = async (petId: string) => {
     if (window.confirm("Вы уверены, что хотите удалить это объявление?")) {
-        setLostPets(prev => prev.filter(p => p.id !== petId));
-        setFoundPets(prev => prev.filter(p => p.id !== petId));
+      try {
+        const reportRef = doc(db, 'reports', petId);
+        await deleteDoc(reportRef);
+        // onSnapshot автоматически обновит стейт reports
+      } catch (error) {
+        console.error('Error deleting report:', error);
+        alert('Не удалось удалить объявление. Попробуйте еще раз.');
+      }
     }
   };
 
@@ -1488,7 +1914,7 @@ export default function App() {
          const candidates = activeSearchPet?.type === 'found' ? lostPets : foundPets;
          return activeSearchPet && <ResultsView pet={activeSearchPet} matches={matches} candidates={candidates} error={error} onBack={() => setView('home')} onPetClick={handlePetClick} onUserClick={handleUserClick} />;
       case 'map':
-          return <MapView lostPets={lostPets} foundPets={foundPets} onPetClick={handlePetClick} />;
+          return <MapView reports={reports} onPetClick={handlePetClick} />;
       case 'privacy':
           return <PrivacyPolicyView onBack={() => setView('home')} />;
       case 'terms':
@@ -1745,7 +2171,12 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <Header currentUser={currentUser} onViewChange={setView} currentView={view} onLogout={handleLogout} onLogin={() => setView('login')} />
+      <Header currentUser={currentUser} onViewChange={setView} currentView={view} onLogout={handleLogout} onLogin={() => setIsLoginModalOpen(true)} />
+      <LoginModal 
+        isOpen={isLoginModalOpen} 
+        onClose={() => setIsLoginModalOpen(false)} 
+        onLoginSuccess={handleLoginSuccess} 
+      />
       <main className="flex-grow">
         {renderContent()}
       </main>
