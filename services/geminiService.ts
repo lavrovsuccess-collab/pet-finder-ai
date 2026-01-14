@@ -1,8 +1,7 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import type { PetReport, MatchResult } from '../types';
 
-const API_KEY = process.env.API_KEY;
+const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
 if (!API_KEY) {
   throw new Error("API_KEY environment variable not set. Please configure your API key.");
@@ -130,7 +129,9 @@ export const findPetMatches = async (targetPet: PetReport, candidates: PetReport
   parts.push(targetImagePart);
 
   // 3. Candidates
-  parts.push({ text: `\n=== СПИСОК КАНДИДАТОВ (${candidateTypeLabel.toUpperCase()}) ===\nНиже представлены кандидаты для проверки:` });
+  parts.push({ text: `
+=== СПИСОК КАНДИДАТОВ (${candidateTypeLabel.toUpperCase()}) ===
+Ниже представлены кандидаты для проверки:` });
 
   // We limit candidates to 20 to ensure we don't overload the request context with too many images if the DB grows, 
   // though Gemini Flash can handle many.
@@ -139,7 +140,12 @@ export const findPetMatches = async (targetPet: PetReport, candidates: PetReport
   for (const candidate of candidatesToAnalyze) {
     const candidatePhoto = candidate.photos && candidate.photos.length > 0 ? candidate.photos[0] : null;
 
-    parts.push({ text: `\n--- КАНДИДАТ ID: ${candidate.id} ---\nПорода: ${candidate.breed}, Окрас: ${candidate.color}\nМесто: ${candidate.lastSeenLocation}\nОписание: ${candidate.description}\nИзображение:` });
+    parts.push({ text: `
+--- КАНДИДАТ ID: ${candidate.id} ---
+Порода: ${candidate.breed}, Окрас: ${candidate.color}
+Место: ${candidate.lastSeenLocation}
+Описание: ${candidate.description}
+Изображение:` });
     
     if (candidatePhoto && candidatePhoto.startsWith('data:')) {
         const candidatePart = fileToGenerativePart(candidatePhoto);
@@ -168,18 +174,9 @@ export const findPetMatches = async (targetPet: PetReport, candidates: PetReport
               items: {
                 type: Type.OBJECT,
                 properties: {
-                  id: {
-                    type: Type.STRING,
-                    description: "ID совпавшего питомца."
-                  },
-                  confidence: {
-                    type: Type.NUMBER,
-                    description: "Оценка уверенности от 0.0 до 1.0."
-                  },
-                  reasoning: {
-                    type: Type.STRING,
-                    description: "Объяснение почему это совпадение, на русском языке."
-                  }
+                  id: {            type: Type.STRING,            description: "ID совпавшего питомца."          },
+                  confidence: {            type: Type.NUMBER,            description: "Оценка уверенности от 0.0 до 1.0."          },
+                  reasoning: {            type: Type.STRING,            description: "Объяснение почему это совпадение, на русском языке."          }
                 },
                 required: ['id', 'confidence', 'reasoning']
               }
