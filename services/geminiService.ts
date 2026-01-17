@@ -33,7 +33,7 @@ export const analyzePetImage = async (imageBase64: string): Promise<{
     color: string;
     description: string;
 } | null> => {
-  const model = "gemini-2.5-flash";
+  const model = "gemini-1.5-flash";
   const imagePart = fileToGenerativePart(imageBase64);
 
   if (!imagePart) {
@@ -84,7 +84,7 @@ export const findPetMatches = async (targetPet: PetReport, candidates: PetReport
     return [];
   }
   
-  const model = "gemini-2.5-flash";
+  const model = "gemini-1.5-flash";
 
   // Use the first photo for matching to save tokens, or if empty handle gracefully
   const targetPhoto = targetPet.photos && targetPet.photos.length > 0 ? targetPet.photos[0] : null;
