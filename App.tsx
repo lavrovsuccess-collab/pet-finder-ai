@@ -2189,8 +2189,8 @@ export default function App() {
             >
                 Политика конфиденциальности
             </button>
-            <button 
-                onClick={() => setView('terms')} 
+            <button
+                onClick={() => setView('terms')}
                 className="text-slate-500 hover:text-slate-300 underline underline-offset-2 transition-colors"
             >
                 Пользовательское соглашение
@@ -2200,3 +2200,5 @@ export default function App() {
     </div>
   );
 }
+
+// force update key
