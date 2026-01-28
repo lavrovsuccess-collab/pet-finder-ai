@@ -1,13 +1,21 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import type { PetReport, MatchResult } from '../types';
 
-const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
+// Инициализация ключа Gemini из переменной окружения VITE_SUPER_GEMINI_KEY
+const API_KEY = import.meta.env.VITE_SUPER_GEMINI_KEY;
 
-if (!API_KEY) {
-  throw new Error("API_KEY environment variable not set. Please configure your API key.");
+let aiInstance: GoogleGenAI | null = null;
+
+function getAi(): GoogleGenAI {
+  if (!API_KEY || String(API_KEY).trim() === '') {
+    throw new Error(
+      "ИИ-поиск недоступен: не настроен ключ API Gemini. " +
+      "Убедитесь, что переменная VITE_SUPER_GEMINI_KEY задана в окружении (локально в .env и на Vercel в Environment Variables)."
+    );
+  }
+  if (!aiInstance) aiInstance = new GoogleGenAI({ apiKey: API_KEY });
+  return aiInstance;
 }
-
-const ai = new GoogleGenAI({ apiKey: API_KEY });
 
 const fileToGenerativePart = (dataUrl: string) => {
   // Check if dataUrl is valid
@@ -46,7 +54,7 @@ export const analyzePetImage = async (imageBase64: string): Promise<{
   Верни ответ строго в формате JSON.`;
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await getAi().models.generateContent({
       model: model,
       contents: { parts: [imagePart, { text: prompt }] },
       config: {
@@ -161,7 +169,7 @@ export const findPetMatches = async (targetPet: PetReport, candidates: PetReport
   }
 
   try {
-    const response = await ai.models.generateContent({
+    const response = await getAi().models.generateContent({
       model: model,
       contents: { parts: parts },
       config: {

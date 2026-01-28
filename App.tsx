@@ -1005,7 +1005,7 @@ const ResultsView: React.FC<{
                          </svg>
                      </div>
                      <h3 className="text-xl font-bold text-red-800 mb-2">Что-то пошло не так</h3>
-                     <p className="text-red-700 mb-6">{error}</p>
+                     <p className="text-red-700 mb-6 text-left whitespace-pre-line max-w-2xl mx-auto">{error}</p>
                      <button onClick={onBack} className="px-6 py-2 bg-white text-red-700 border border-red-200 font-semibold rounded-lg shadow-sm hover:bg-red-50">
                          Вернуться назад
                      </button>

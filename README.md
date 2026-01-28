@@ -15,6 +15,7 @@ View your app in AI Studio: https://ai.studio/apps/drive/1MeNuwLFyHsS9RNAXng6igf
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+2. Create `.env` or `.env.local` and set **`VITE_GEMINI_API_KEY`** — ваш ключ API из [Google AI Studio](https://aistudio.google.com/apikey). Без него ИИ-поиск не работает.
 3. Run the app:
    `npm run dev`
+4. **Деплой на Vercel:** добавьте в настройках проекта (Settings → Environment Variables) переменную **`VITE_GEMINI_API_KEY`** и пересоберите проект, иначе ИИ-поиск на сайте будет недоступен.
