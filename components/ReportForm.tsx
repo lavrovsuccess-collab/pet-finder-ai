@@ -36,6 +36,7 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
   const [isMapOpen, setIsMapOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
@@ -276,41 +277,58 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (photos.length === 0) {
-      setError('Пожалуйста, загрузите хотя бы одну фотографию.');
+    
+    // Защита от повторных кликов
+    if (isSubmitting) {
+      console.log('⚠️ [ReportForm] Уже отправляется, игнорируем повторный клик');
       return;
     }
     
-    setError('');
+    console.log('📤 [ReportForm] handleSubmit вызван');
+    console.log('📤 [ReportForm] photos.length:', photos.length);
     
-    const reportData: Omit<PetReport, 'id' | 'type' | 'userId' | 'status' | 'date'> & { mainPhoto: string | null } = {
+    if (photos.length === 0) {
+      setError('Пожалуйста, загрузите хотя бы одну фотографию.');
+      console.log('❌ [ReportForm] Нет фотографий, прерываем');
+      return;
+    }
+    
+    setIsSubmitting(true);
+    setError('');
+    console.log('📤 [ReportForm] Начинаем сохранение...');
+    
+    const reportData: Omit<PetReport, 'id' | 'type' | 'userId' | 'status' | 'date'> & { mainPhoto: string } = {
       species,
-      petName,
+      petName: petName || '',
       breed: breed || 'Не указана',
       color: color || 'Не указан',
       lastSeenLocation: lastSeenLocation || 'Не указано',
-      lat: coordinates?.lat,
-      lng: coordinates?.lng,
+      lat: coordinates?.lat ?? 0,
+      lng: coordinates?.lng ?? 0,
       description: description || 'Нет описания',
       contactInfo: contactInfo || 'Не указано',
-      photos,
-      mainPhoto: photos[0] || null,
+      photos: photos || [],
+      mainPhoto: photos[0] || '',
     };
 
     try {
       // Получаем текущего пользователя из localStorage
       const currentUser = localStorage.getItem('petFinderUser');
+      console.log('📤 [ReportForm] currentUser:', currentUser);
+      console.log('📤 [ReportForm] reportData:', JSON.stringify(reportData, null, 2).substring(0, 500));
       
       if (initialData && initialData.id) {
         // Редактирование существующего объявления
+        console.log('📤 [ReportForm] Режим редактирования, id:', initialData.id);
         const reportRef = doc(db, 'reports', initialData.id);
         await updateDoc(reportRef, {
           ...reportData,
-          mainPhoto: photos[0] || null,
+          mainPhoto: photos[0] || '',
         });
-        console.log('Объявление обновлено в reports');
+        console.log('✅ [ReportForm] Объявление обновлено в reports');
       } else {
         // Создание нового объявления
+        console.log('📤 [ReportForm] Режим создания нового объявления');
         const fullReportData = {
           ...reportData,
           type: formType,
@@ -319,13 +337,14 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
           date: new Date().toISOString()
         };
         
-        await addDoc(collection(db, 'reports'), fullReportData);
-        console.log('УРА! Объявление сохранено в reports');
+        console.log('📤 [ReportForm] Отправляем в Firebase...');
+        const docRef = await addDoc(collection(db, 'reports'), fullReportData);
+        console.log('✅ [ReportForm] УРА! Объявление сохранено, id:', docRef.id);
       }
 
-      // Передаём данные наверх
-      onSubmit(reportData);
-
+      // Показываем сообщение об успехе
+      alert('✅ Объявление успешно опубликовано!');
+      
       // Очищаем форму
       setSpecies('dog');
       setPetName('');
@@ -336,9 +355,22 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
       setDescription('');
       setContactInfo(defaultContactInfo || '');
       setPhotos([]);
-    } catch (err) {
-      console.error('Ошибка при сохранении объявления в Firestore:', err);
+      console.log('✅ [ReportForm] Форма очищена');
+      
+      // Передаём данные наверх
+      console.log('📤 [ReportForm] Вызываем onSubmit...');
+      onSubmit(reportData);
+      
+      // Принудительно закрываем форму через onCancel
+      console.log('📤 [ReportForm] Закрываем форму через onCancel...');
+      onCancel();
+    } catch (err: any) {
+      console.error('❌ [ReportForm] Ошибка при сохранении:', err);
+      console.error('❌ [ReportForm] Тип ошибки:', err?.code);
+      console.error('❌ [ReportForm] Сообщение:', err?.message);
       setError('Не удалось сохранить объявление. Попробуйте еще раз.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -521,8 +553,12 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
           <button type="button" onClick={onCancel} className="w-full sm:w-auto px-6 py-2 border border-slate-300 rounded-md shadow-sm text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-500">
             Отмена
           </button>
-          <button type="submit" className="w-full sm:w-auto px-6 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
-            {submitButtonText}
+          <button 
+            type="submit" 
+            disabled={isSubmitting}
+            className={`w-full sm:w-auto px-6 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 ${isSubmitting ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'}`}
+          >
+            {isSubmitting ? 'Сохранение...' : submitButtonText}
           </button>
         </div>
       </form>

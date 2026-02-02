@@ -179,7 +179,7 @@ export const PetCard: React.FC<PetCardProps> = ({ pet, matchInfo, onEdit, onDele
            >
                 <div className="flex justify-between items-center mb-1">
                     <span className="text-xs font-bold text-blue-800 uppercase tracking-wider">Совпадение</span>
-                    <span className="text-xs font-bold text-blue-600 bg-white px-1.5 py-0.5 rounded shadow-sm">{(matchInfo.confidence * 100).toFixed(0)}%</span>
+                    <span className="text-xs font-bold text-blue-600 bg-white px-1.5 py-0.5 rounded shadow-sm">{Math.round(matchInfo.confidence)}%</span>
                 </div>
                 <p className={`text-xs text-slate-600 leading-snug ${isReasoningExpanded ? '' : 'line-clamp-1'}`}>
                     {matchInfo.reasoning}

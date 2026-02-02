@@ -1,210 +1,298 @@
-import { GoogleGenAI, Type } from "@google/genai";
 import type { PetReport, MatchResult } from '../types';
 
-// Инициализация ключа Gemini из переменной окружения VITE_SUPER_GEMINI_KEY
-const API_KEY = import.meta.env.VITE_SUPER_GEMINI_KEY;
+// OpenRouter API (работает из России!)
+const API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
+const API_URL = "https://openrouter.ai/api/v1/chat/completions";
 
-let aiInstance: GoogleGenAI | null = null;
+// Бесплатные модели с поддержкой изображений (проверено по OpenRouter API)
+// Бесплатной Gemini с явным id на OpenRouter нет — роутер openrouter/free может выбрать её сам
+const MODELS = [
+  "openrouter/free",                      // Первый: роутер выбирает бесплатную модель (в т.ч. Gemini, если доступна)
+  "allenai/molmo-2-8b:free",              // Резерв: бесплатная vision от AllenAI
+  "nvidia/nemotron-nano-12b-v2-vl:free"  // Резерв: бесплатная vision от NVIDIA
+];
 
-function getAi(): GoogleGenAI {
-  if (!API_KEY || String(API_KEY).trim() === '') {
-    throw new Error(
-      "ИИ-поиск недоступен: не настроен ключ API Gemini. " +
-      "Убедитесь, что переменная VITE_SUPER_GEMINI_KEY задана в окружении (локально в .env и на Vercel в Environment Variables)."
-    );
-  }
-  if (!aiInstance) aiInstance = new GoogleGenAI({ apiKey: API_KEY });
-  return aiInstance;
+/**
+ * Очищает base64 от data URL префикса
+ */
+function cleanBase64(imageBase64: string): string {
+  return imageBase64.replace(/^data:image\/\w+;base64,/, "");
 }
 
-const fileToGenerativePart = (dataUrl: string) => {
-  // Check if dataUrl is valid
-  if (!dataUrl || typeof dataUrl !== 'string') return null;
-
-  const match = dataUrl.match(/^data:(.+);base64,(.+)$/);
-  if (!match) {
-    return null;
+/**
+ * Добавляет data URL префикс если его нет
+ */
+function ensureDataUrl(imageBase64: string): string {
+  if (imageBase64.startsWith("data:")) {
+    return imageBase64;
   }
-  const mimeType = match[1];
-  const data = match[2];
-  return {
-    inlineData: {
-      data,
-      mimeType,
-    },
-  };
-};
+  return `data:image/jpeg;base64,${imageBase64}`;
+}
 
-export const analyzePetImage = async (imageBase64: string): Promise<{
-    species: 'dog' | 'cat' | 'other';
-    breed: string;
-    color: string;
-    description: string;
-} | null> => {
-  const model = "gemini-1.5-flash";
-  const imagePart = fileToGenerativePart(imageBase64);
+/**
+ * Очищает ответ от markdown ```json ... ```
+ */
+function cleanJsonResponse(text: string): string {
+  return text
+    .replace(/```json\s*/gi, "")
+    .replace(/```\s*/g, "")
+    .trim();
+}
 
-  if (!imagePart) {
-    console.warn("No valid image part created for analysis.");
-    return null;
-  }
+/**
+ * Выполняет запрос к OpenRouter API с перебором моделей
+ */
+async function callOpenRouter(messages: any[]): Promise<string | null> {
+  console.log("📡 Отправляем запрос к OpenRouter API...");
 
-  const prompt = `Проанализируй фотографию животного для объявления о пропаже/находке.
-  Определи вид животного (собака, кошка или другое), наиболее вероятную породу, основной окрас и составь краткое описание примет.
-  Верни ответ строго в формате JSON.`;
+  for (const model of MODELS) {
+    try {
+      console.log(`🔧 Пробуем модель: ${model}...`);
 
-  try {
-    const response = await getAi().models.generateContent({
-      model: model,
-      contents: { parts: [imagePart, { text: prompt }] },
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-                species: { type: Type.STRING, enum: ["dog", "cat", "other"] },
-                breed: { type: Type.STRING, description: "Название породы или 'Метис/Беспородный'" },
-                color: { type: Type.STRING, description: "Основной окрас" },
-                description: { type: Type.STRING, description: "Краткое описание внешности и примет (3-4 предложения)" }
-            },
-            required: ["species", "breed", "color", "description"]
-        }
+      const response = await fetch(API_URL, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${API_KEY}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": window.location.origin,
+          "X-Title": "PetFinder"
+        },
+        body: JSON.stringify({
+          model: model,
+          messages: messages
+        })
+      });
+
+      const data = await response.json();
+
+      // Если модель не найдена — пробуем следующую
+      if (response.status === 404) {
+        console.warn(`⚠️ Модель ${model} не найдена, пробуем следующую...`);
+        continue;
       }
-    });
 
-    const text = response.text;
-    if (!text) return null;
-    return JSON.parse(text);
-  } catch (error) {
-    console.error("Error analyzing pet image:", error);
-    return null;
-  }
-};
+      if (!response.ok) {
+        console.error(`❌ Ошибка API ${response.status}:`, data.error?.message || data);
+        continue;
+      }
 
-// Deprecated alias kept for backward compatibility if needed elsewhere, but forwarded to new logic
-export const generatePetDescription = async (imageBase64: string): Promise<string> => {
-    const result = await analyzePetImage(imageBase64);
-    return result ? result.description : "";
-};
+      const text = data.choices?.[0]?.message?.content;
+      if (!text) {
+        console.warn(`⚠️ Модель ${model} вернула пустой ответ, пробуем следующую...`);
+        continue;
+      }
 
-export const findPetMatches = async (targetPet: PetReport, candidates: PetReport[]): Promise<MatchResult[]> => {
-  if (candidates.length === 0) {
-    return [];
-  }
-  
-  const model = "gemini-1.5-flash";
+      console.log(`✅ Успех! Модель ${model} ответила`);
+      console.log("📝 Сырой ответ:", text.substring(0, 500) + (text.length > 500 ? "..." : ""));
 
-  // Use the first photo for matching to save tokens, or if empty handle gracefully
-  const targetPhoto = targetPet.photos && targetPet.photos.length > 0 ? targetPet.photos[0] : null;
+      return text;
 
-  if (!targetPhoto) {
-    throw new Error("Target pet has no photos for analysis.");
-  }
-
-  const targetImagePart = fileToGenerativePart(targetPhoto);
-  if (!targetImagePart) {
-    throw new Error("Failed to process target pet image.");
-  }
-
-  const targetIsFound = targetPet.type === 'found';
-  const targetTypeLabel = targetIsFound ? 'найденного' : 'потерянного';
-  const candidateTypeLabel = targetIsFound ? 'потерянных' : 'найденных';
-
-  // Construct the multipart content
-  const parts: any[] = [];
-
-  // 1. System Instruction
-  parts.push({ text: `Ты — эксперт, ИИ-детектив по поиску домашних животных.
-  Твоя задача — сравнить ИСКОМОГО питомца (которого ${targetIsFound ? 'нашли' : 'потеряли'}) со списком КАНДИДАТОВ.
-  
-  Я предоставлю данные и фото искомого питомца первым.
-  Затем я предоставлю список кандидатов. Для каждого кандидата я дам описание и, если есть, фотографию.
-  
-  Проанализируй визуальное сходство (порода, окрас, пятна, морда) и текстовые описания.
-  Визуальное сходство имеет решающее значение. Если фотографии показывают одно и то же животное (или очень похожее), ставь высокую уверенность.
-  
-  Верни JSON с массивом "matches" (до 10 наиболее вероятных совпадений, отсортированных по убыванию уверенности). Не включай кандидатов с уверенностью < 0.1.` });
-
-  // 2. Target Pet Info
-  parts.push({ text: `
-  === ИСКОМЫЙ ПИТОМЕЦ (${targetTypeLabel.toUpperCase()}) ===
-  Порода: ${targetPet.breed}
-  Окрас: ${targetPet.color}
-  Место: ${targetPet.lastSeenLocation}
-  Описание: ${targetPet.description}
-  Изображение:
-  `});
-  parts.push(targetImagePart);
-
-  // 3. Candidates
-  parts.push({ text: `
-=== СПИСОК КАНДИДАТОВ (${candidateTypeLabel.toUpperCase()}) ===
-Ниже представлены кандидаты для проверки:` });
-
-  // We limit candidates to 20 to ensure we don't overload the request context with too many images if the DB grows, 
-  // though Gemini Flash can handle many.
-  const candidatesToAnalyze = candidates.slice(0, 20);
-
-  for (const candidate of candidatesToAnalyze) {
-    const candidatePhoto = candidate.photos && candidate.photos.length > 0 ? candidate.photos[0] : null;
-
-    parts.push({ text: `
---- КАНДИДАТ ID: ${candidate.id} ---
-Порода: ${candidate.breed}, Окрас: ${candidate.color}
-Место: ${candidate.lastSeenLocation}
-Описание: ${candidate.description}
-Изображение:` });
-    
-    if (candidatePhoto && candidatePhoto.startsWith('data:')) {
-        const candidatePart = fileToGenerativePart(candidatePhoto);
-        if (candidatePart) {
-            parts.push(candidatePart);
-        } else {
-            parts.push({ text: "[Ошибка изображения кандидата]" });
-        }
-    } else {
-        // If it's a URL (e.g. seed data) or missing, we treat it as text-only/url ref for this demo unless we fetch it.
-        parts.push({ text: "[Изображение доступно по URL, визуальный анализ пропущен, ориентируйся на описание]" });
+    } catch (err) {
+      console.error(`❌ Ошибка сети для модели ${model}:`, err);
     }
   }
 
-  try {
-    const response = await getAi().models.generateContent({
-      model: model,
-      contents: { parts: parts },
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            matches: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  id: {            type: Type.STRING,            description: "ID совпавшего питомца."          },
-                  confidence: {            type: Type.NUMBER,            description: "Оценка уверенности от 0.0 до 1.0."          },
-                  reasoning: {            type: Type.STRING,            description: "Объяснение почему это совпадение, на русском языке."          }
-                },
-                required: ['id', 'confidence', 'reasoning']
-              }
-            }
+  console.error("💀 Все модели отказали!");
+  return null;
+}
+
+/**
+ * Анализирует изображение питомца и возвращает его характеристики
+ */
+export async function analyzePetImage(imageBase64: string): Promise<{
+  species: string;
+  breed: string;
+  color: string;
+  description: string;
+} | null> {
+  console.log("🔍 analyzePetImage: Начинаем анализ фото...");
+
+  const messages = [
+    {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: `Проанализируй животное на фотографии.
+
+Определи:
+- Вид животного (dog или cat)
+- Породу (или "неизвестно" если не можешь определить)
+- Основной цвет шерсти
+- Особые приметы и описание внешности
+
+Верни ТОЛЬКО JSON без дополнительного текста:
+{
+  "species": "dog" или "cat",
+  "breed": "порода",
+  "color": "цвет",
+  "description": "краткое описание особенностей внешности"
+}`
+        },
+        {
+          type: "image_url",
+          image_url: {
+            url: ensureDataUrl(imageBase64)
           }
         }
+      ]
+    }
+  ];
+
+  const responseText = await callOpenRouter(messages);
+
+  if (!responseText) {
+    console.error("🚫 analyzePetImage: Не удалось получить ответ");
+    return null;
+  }
+
+  try {
+    const cleanedJson = cleanJsonResponse(responseText);
+    console.log("🧹 Очищенный JSON:", cleanedJson);
+
+    const result = JSON.parse(cleanedJson);
+    console.log("✅ analyzePetImage результат:", result);
+    return result;
+
+  } catch (err) {
+    console.error("❌ Ошибка парсинга JSON:", err);
+    console.error("📄 Текст ответа:", responseText);
+    return null;
+  }
+}
+
+/**
+ * Генерирует текстовое описание питомца
+ */
+export async function generatePetDescription(imageBase64: string): Promise<string | null> {
+  console.log("📝 generatePetDescription: Генерируем описание...");
+
+  const analysis = await analyzePetImage(imageBase64);
+
+  if (!analysis) {
+    return null;
+  }
+
+  const speciesRu = analysis.species === 'dog' ? 'Собака' : 'Кот/Кошка';
+  const description = `${speciesRu}, порода: ${analysis.breed}, цвет: ${analysis.color}. ${analysis.description}`;
+
+  console.log("✅ Описание:", description);
+  return description;
+}
+
+/**
+ * Ищет совпадения между целевым питомцем и списком кандидатов
+ * Отправляем фотографии для визуального сравнения!
+ */
+export async function findPetMatches(
+  targetPet: PetReport,
+  candidates: PetReport[]
+): Promise<MatchResult[]> {
+  console.log("🔎 findPetMatches: Начинаем визуальный поиск совпадений...");
+  console.log(`🎯 Ищем питомца: ${targetPet.id} (${targetPet.breed || 'порода неизвестна'})`);
+  console.log(`📋 Всего кандидатов: ${candidates.length}`);
+
+  if (candidates.length === 0) {
+    console.log("⚠️ Нет кандидатов для сравнения");
+    return [];
+  }
+
+  // Берём первых 5 кандидатов с фотографиями (ограничение из-за размера запроса)
+  const candidatesWithPhotos = candidates
+    .filter(c => c.photos?.[0] && c.photos[0].length > 100)
+    .slice(0, 5);
+
+  console.log(`📸 Кандидатов с фото для сравнения: ${candidatesWithPhotos.length}`);
+
+  if (candidatesWithPhotos.length === 0) {
+    console.log("⚠️ Нет кандидатов с фотографиями");
+    return [];
+  }
+
+  // Формируем контент сообщения с несколькими изображениями
+  const content: any[] = [];
+
+  // Текстовый промпт
+  content.push({
+    type: "text",
+    text: `Ты — эксперт по поиску потерянных животных.
+
+ЗАДАНИЕ: Сравни ПЕРВОЕ фото (искомое животное) с остальными фото (кандидаты).
+
+ИСКОМОЕ ЖИВОТНОЕ:
+- ID: ${targetPet.id}
+- Порода: ${targetPet.breed || 'неизвестно'}
+- Цвет: ${targetPet.color || 'неизвестно'}
+- Описание: ${targetPet.description || 'нет'}
+
+КАНДИДАТЫ:
+${candidatesWithPhotos.map((c, i) => `${i + 1}. ID: "${c.id}", Порода: ${c.breed || 'неизвестно'}, Цвет: ${c.color || 'неизвестно'}`).join('\n')}
+
+Внимательно сравни ВИЗУАЛЬНО искомое животное с каждым кандидатом.
+Обрати внимание на: окрас, форму морды и ушей, размер, особые приметы.
+
+Верни ТОЛЬКО JSON (без markdown):
+{
+  "matches": [
+    {
+      "id": "ID кандидата",
+      "confidence": число от 0 до 100,
+      "reasoning": "почему похож или не похож"
+    }
+  ]
+}
+
+Включи ВСЕХ кандидатов. confidence 80-100 = очень похож, 50-79 = есть сходство, 0-49 = мало похож.`
+  });
+
+  // Фото искомого питомца
+  if (targetPet.photos?.[0]) {
+    content.push({
+      type: "image_url",
+      image_url: {
+        url: ensureDataUrl(targetPet.photos[0])
       }
     });
-
-    let jsonText = response.text;
-    if (!jsonText) {
-      throw new Error("Empty response from AI model");
-    }
-
-    // Cleanup potentially wrapped JSON
-    jsonText = jsonText.replace(/```json\s*/g, "").replace(/```\s*$/g, "");
-    const result = JSON.parse(jsonText);
-    return result.matches || [];
-  } catch (e: any) {
-    console.error("AI Search Error:", e);
-    throw new Error(e.message || "Failed to analyze matches with AI.");
   }
-};
+
+  // Фото каждого кандидата
+  candidatesWithPhotos.forEach((candidate) => {
+    content.push({
+      type: "image_url",
+      image_url: {
+        url: ensureDataUrl(candidate.photos[0])
+      }
+    });
+  });
+
+  console.log(`📤 Отправляем ${content.length} частей (текст + ${candidatesWithPhotos.length + 1} фото) в OpenRouter...`);
+
+  const messages = [{ role: "user", content }];
+  const responseText = await callOpenRouter(messages);
+
+  if (!responseText) {
+    console.error("🚫 findPetMatches: Не удалось получить ответ от API");
+    return [];
+  }
+
+  try {
+    const cleanedJson = cleanJsonResponse(responseText);
+    console.log("🧹 Очищенный JSON:", cleanedJson);
+
+    const result = JSON.parse(cleanedJson);
+    const matches: MatchResult[] = result.matches || [];
+
+    console.log(`✅ findPetMatches: Найдено ${matches.length} результатов`);
+    matches.forEach(m => {
+      console.log(`   - ${m.id}: ${m.confidence}% — ${m.reasoning}`);
+    });
+
+    // Сортируем по убыванию confidence
+    return matches.sort((a, b) => b.confidence - a.confidence);
+
+  } catch (err) {
+    console.error("❌ Ошибка парсинга JSON:", err);
+    console.error("📄 Текст ответа:", responseText);
+    return [];
+  }
+}

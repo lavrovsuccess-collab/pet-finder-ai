@@ -1059,7 +1059,7 @@ const ResultsView: React.FC<{
                                                 p.matchInfo.confidence > 0.5 ? 'bg-blue-500 text-white' :
                                                 'bg-yellow-500 text-white'
                                             }`}>
-                                                {(p.matchInfo.confidence * 100).toFixed(0)}%
+                                                {Math.round(p.matchInfo.confidence)}%
                                             </div>
                                         </div>
                                         
@@ -1374,7 +1374,7 @@ const AccountView: React.FC<{
                                                 {secondaryText}
                                             </p>
                                             <p className="text-xs text-blue-700 mt-1 italic">
-                                                Уверенность ИИ: <strong>{(n.matchResult.confidence * 100).toFixed(0)}%</strong>.
+                                                Уверенность ИИ: <strong>{Math.round(n.matchResult.confidence)}%</strong>.
                                             </p>
                                         </div>
                                         {!n.read && (
@@ -1777,7 +1777,11 @@ export default function App() {
   }, [currentUser, lostPets, foundPets]);
 
   const handleReportSubmit = useCallback((reportData: Omit<PetReport, 'id' | 'type' | 'userId' | 'status' | 'date'>, formType: 'lost' | 'found' | 'edit') => {
+    console.log('🏠 [App] handleReportSubmit вызван, formType:', formType);
+    console.log('🏠 [App] currentUser:', currentUser);
+    
     if (!currentUser) {
+        console.log('❌ [App] Нет currentUser, переходим на login');
         alert("Пожалуйста, войдите в систему, чтобы подать объявление.");
         setView('login');
         return;
@@ -1787,12 +1791,13 @@ export default function App() {
     // onSnapshot автоматически обновит стейт reports
     
     if (formType === 'lost') {
-      // onSnapshot обновит reports автоматически, пользователь увидит объявление в списке
+      console.log('✅ [App] Переходим на home (lost)');
       setView('home');
     } else if (formType === 'found') {
+      console.log('✅ [App] Переходим на home (found)');
       setView('home');
     } else if (formType === 'edit' && editingPet) {
-        // Для редактирования данные уже обновлены в Firebase через ReportForm
+        console.log('✅ [App] Переходим на account (edit)');
         setEditingPet(null);
         setView('account');
     }
