@@ -15,7 +15,9 @@ View your app in AI Studio: https://ai.studio/apps/drive/1MeNuwLFyHsS9RNAXng6igf
 
 1. Install dependencies:
    `npm install`
-2. Create `.env` or `.env.local` and set **`VITE_GEMINI_API_KEY`** — ваш ключ API из [Google AI Studio](https://aistudio.google.com/apikey). Без него ИИ-поиск не работает.
+2. Create `.env` file with required API keys:
+   - **`VITE_OPENROUTER_API_KEY`** — your API key from [OpenRouter](https://openrouter.ai/keys)
+   - **`VITE_FIREBASE_API_KEY`** and other Firebase config variables
 3. Run the app:
    `npm run dev`
-4. **Деплой на Vercel:** добавьте в настройках проекта (Settings → Environment Variables) переменную **`VITE_GEMINI_API_KEY`** и пересоберите проект, иначе ИИ-поиск на сайте будет недоступен.
+4. **Deploy to Vercel:** Add all environment variables in Settings → Environment Variables (Production, Preview, and Development), then redeploy.
