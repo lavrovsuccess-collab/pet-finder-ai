@@ -1137,9 +1137,11 @@ const AccountView: React.FC<{
     onPetClick: (pet: PetReport) => void;
     onUserClick: (userId: string) => void;
 }> = ({ currentUser, allLostPets, allFoundPets, notifications, userProfile, onSaveProfile, onEdit, onDelete, onToggleStatus, onMarkAsRead, onFindMatches, onPetClick, onUserClick }) => {
-    const myLostPets = allLostPets.filter(p => p.userId === currentUser);
-    const myFoundPets = allFoundPets.filter(p => p.userId === currentUser);
-    const myNotifications = notifications.filter(n => n.userId === currentUser);
+    // Используем Firebase UID для фильтрации объявлений
+    const currentUserId = localStorage.getItem('petFinderUserId');
+    const myLostPets = allLostPets.filter(p => p.userId === currentUserId);
+    const myFoundPets = allFoundPets.filter(p => p.userId === currentUserId);
+    const myNotifications = notifications.filter(n => n.userId === currentUserId);
     const unreadCount = myNotifications.filter(n => !n.read).length;
 
     const [name, setName] = useState(userProfile?.name || '');
@@ -1358,7 +1360,7 @@ const AccountView: React.FC<{
                     {myNotifications.length > 0 ? (
                         <div className="space-y-3 md:space-y-4">
                             {myNotifications.map(n => {
-                                const isMyLostPet = n.lostPet.userId === currentUser;
+                                const isMyLostPet = n.lostPet.userId === currentUserId;
                                 const notificationText = isMyLostPet 
                                     ? `Найдено возможное совпадение для вашего питомца "${n.lostPet.petName || 'Без имени'}"!`
                                     : `Ваше объявление о находке может совпадать с потерянным питомцем "${n.lostPet.petName || 'Без имени'}".`;
@@ -1703,6 +1705,14 @@ export default function App() {
   };
 
   const handleToggleStatus = async (pet: PetReport) => {
+      // Проверка прав доступа: только владелец может изменять статус
+      const currentUserId = localStorage.getItem('petFinderUserId');
+      
+      if (pet.userId !== currentUserId) {
+        alert('Вы можете изменять статус только своих объявлений');
+        return;
+      }
+      
       // Explicitly type status as 'active' | 'resolved' to avoid type widening to string
       const newStatus: 'active' | 'resolved' = pet.status === 'resolved' ? 'active' : 'resolved';
       
@@ -1822,6 +1832,15 @@ export default function App() {
   }, [currentUser, editingPet]);
   
   const handleDelete = async (petId: string) => {
+    // Проверка прав доступа: только владелец может удалить
+    const pet = reports.find(p => p.id === petId);
+    const currentUserId = localStorage.getItem('petFinderUserId');
+    
+    if (!pet || pet.userId !== currentUserId) {
+      alert('Вы можете удалять только свои объявления');
+      return;
+    }
+    
     if (window.confirm("Вы уверены, что хотите удалить это объявление?")) {
       try {
         const reportRef = doc(db, 'reports', petId);
@@ -1835,6 +1854,14 @@ export default function App() {
   };
 
   const handleEdit = (pet: PetReport) => {
+    // Проверка прав доступа: только владелец может редактировать
+    const currentUserId = localStorage.getItem('petFinderUserId');
+    
+    if (pet.userId !== currentUserId) {
+      alert('Вы можете редактировать только свои объявления');
+      return;
+    }
+    
     setEditingPet(pet);
     setView('editReport');
   };

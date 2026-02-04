@@ -1,0 +1,32 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ==========================================
+    // Коллекция reports (объявления о питомцах)
+    // ==========================================
+    match /reports/{reportId} {
+      // Чтение разрешено всем (публичные объявления)
+      allow read: if true;
+      
+      // Создание только авторизованным пользователям
+      allow create: if request.auth != null;
+      
+      // Обновление и удаление только владельцу документа
+      allow update, delete: if request.auth != null && 
+        resource.data.userId == request.auth.uid;
+    }
+    
+    // ==========================================
+    // Коллекция users (профили пользователей)
+    // ==========================================
+    match /users/{userId} {
+      // Чтение профилей разрешено всем
+      allow read: if true;
+      
+      // Запись только владельцу профиля
+      allow write: if request.auth != null && 
+        request.auth.uid == userId;
+    }
+  }
+}

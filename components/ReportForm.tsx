@@ -312,9 +312,9 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
     };
 
     try {
-      // Получаем текущего пользователя из localStorage
-      const currentUser = localStorage.getItem('petFinderUser');
-      console.log('📤 [ReportForm] currentUser:', currentUser);
+      // Получаем Firebase UID текущего пользователя (для Security Rules)
+      const currentUserId = localStorage.getItem('petFinderUserId');
+      console.log('📤 [ReportForm] currentUserId:', currentUserId);
       console.log('📤 [ReportForm] reportData:', JSON.stringify(reportData, null, 2).substring(0, 500));
       
       if (initialData && initialData.id) {
@@ -332,7 +332,7 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
         const fullReportData = {
           ...reportData,
           type: formType,
-          userId: currentUser || 'anonymous',
+          userId: currentUserId || 'anonymous',
           status: 'active' as const,
           date: new Date().toISOString()
         };
