@@ -750,11 +750,19 @@ const PetDetailView: React.FC<{
         ? `https://www.google.com/maps?q=${pet.lat},${pet.lng}` 
         : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(pet.lastSeenLocation)}`;
     
-    const formattedDate = pet.date ? new Date(pet.date).toLocaleDateString('ru-RU', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric'
-    }) : 'Неизвестна';
+    const formattedDate = pet.date ? (() => {
+      const date = new Date(pet.date);
+      const dateStr = date.toLocaleDateString('ru-RU', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric'
+      });
+      const timeStr = date.toLocaleTimeString('ru-RU', {
+          hour: '2-digit',
+          minute: '2-digit'
+      });
+      return `${dateStr} ${timeStr}`;
+    })() : 'Неизвестна';
 
     return (
         <div className="container mx-auto px-4 py-6 md:py-12 animate-fade-in">
@@ -1510,9 +1518,19 @@ export default function App() {
   // Единый источник правды - все объявления из Firebase
   const [reports, setReports] = useState<PetReport[]>([]);
   
-  // Computed значения для обратной совместимости
-  const lostPets = useMemo(() => reports.filter(p => p.type === 'lost'), [reports]);
-  const foundPets = useMemo(() => reports.filter(p => p.type === 'found'), [reports]);
+  // Computed значения для обратной совместимости (сортировка: новые сверху)
+  const lostPets = useMemo(() => 
+    reports
+      .filter(p => p.type === 'lost')
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()), 
+    [reports]
+  );
+  const foundPets = useMemo(() => 
+    reports
+      .filter(p => p.type === 'found')
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()), 
+    [reports]
+  );
   
   // User Profiles storage
   const [profiles, setProfiles] = useState<Record<string, UserProfile>>(() => {

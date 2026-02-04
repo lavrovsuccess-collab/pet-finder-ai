@@ -32,11 +32,19 @@ export const PetCard: React.FC<PetCardProps> = ({ pet, matchInfo, onEdit, onDele
   const displayPhoto = (pet.photos && pet.photos.length > 0) ? pet.photos[0] : '';
   const photoCount = pet.photos ? pet.photos.length : 0;
 
-  const formattedDate = pet.date ? new Date(pet.date).toLocaleDateString('ru-RU', {
-      day: 'numeric',
-      month: 'short',
-      year: '2-digit'
-  }) : '';
+  const formattedDate = pet.date ? (() => {
+      const date = new Date(pet.date);
+      const dateStr = date.toLocaleDateString('ru-RU', {
+          day: 'numeric',
+          month: 'short',
+          year: '2-digit'
+      });
+      const timeStr = date.toLocaleTimeString('ru-RU', {
+          hour: '2-digit',
+          minute: '2-digit'
+      });
+      return `${dateStr} ${timeStr}`;
+  })() : '';
 
   const handleMapClick = (e: React.MouseEvent) => {
       e.stopPropagation();
