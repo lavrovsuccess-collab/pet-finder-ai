@@ -5,6 +5,7 @@ import { findPetMatches } from './services/geminiService';
 import { PetCard } from './components/PetCard';
 import { ReportForm } from './components/ReportForm';
 import { ConfirmModal } from './components/ConfirmModal';
+import { MapView } from './components/MapView';
 import { PawIcon, SearchIcon, PlusCircleIcon, LogoIcon, UserCircleIcon, BellIcon, GoogleIcon, MapPinIcon, PhoneIcon, PencilIcon, CalendarIcon, ChevronDownIcon, CrosshairIcon, MapIcon, CameraIcon } from './components/icons';
 import { auth, db } from './src/firebase';
 import { signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged } from 'firebase/auth';
@@ -466,178 +467,8 @@ const PrivacyPolicyView: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     );
 };
 
-const MapView: React.FC<{
-    reports: PetReport[];
-    onPetClick: (pet: PetReport) => void
-}> = ({ reports, onPetClick }) => {
-    const mapRef = useRef<HTMLDivElement>(null);
-    const mapInstanceRef = useRef<any>(null);
-    const clusterGroupRef = useRef<any>(null);
 
-    // Filter active pets with coordinates
-    const activePets = useMemo(() => {
-        return reports.filter(p => p.status !== 'resolved' && p.lat && p.lng);
-    }, [reports]);
-
-    useEffect(() => {
-        if (!mapRef.current || !window.L) return;
-
-        // Init map if not exists
-        if (!mapInstanceRef.current) {
-            const map = window.L.map(mapRef.current, {
-                attributionControl: false
-            });
-            
-            // Add attribution
-            window.L.control.attribution({ prefix: false }).addTo(map);
-
-            window.L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
-                subdomains: 'abcd',
-                maxZoom: 19
-            }).addTo(map);
-
-            // Default view (will be overridden by bounds)
-            map.setView([55.7558, 37.6173], 10); 
-
-            mapInstanceRef.current = map;
-        }
-
-        const map = mapInstanceRef.current;
-
-        // Clear existing cluster group
-        if (clusterGroupRef.current) {
-            map.removeLayer(clusterGroupRef.current);
-        }
-        clusterGroupRef.current = window.L.markerClusterGroup({
-            showCoverageOnHover: false,
-            maxClusterRadius: 50,
-            spiderfyOnMaxZoom: true,
-            zoomToBoundsOnClick: true
-        });
-
-        // Helper to create custom colored icons
-        const createIcon = (color: string) => {
-             return window.L.divIcon({
-                className: 'custom-map-marker',
-                html: `<div style="
-                    background-color: ${color}; 
-                    width: 20px; 
-                    height: 20px; 
-                    border-radius: 50%; 
-                    border: 3px solid white; 
-                    box-shadow: 0 3px 6px rgba(0,0,0,0.4);
-                "></div>`,
-                iconSize: [20, 20],
-                iconAnchor: [10, 10],
-                popupAnchor: [0, -10]
-            });
-        };
-
-        const markers: any[] = [];
-
-        activePets.forEach(pet => {
-            if (!pet.lat || !pet.lng) return;
-
-            const iconColor = pet.type === 'lost' ? '#EF4444' : '#22C55E'; // Red-500 or Green-500
-            const marker = window.L.marker([pet.lat, pet.lng], { icon: createIcon(iconColor) });
-
-            // Create popup content
-            const container = document.createElement('div');
-            container.className = "flex flex-col gap-2 min-w-[220px]";
-
-            // Use mainPhoto instead of photos[0]
-            const img = document.createElement('img');
-            img.src = pet.mainPhoto || pet.photos?.[0] || 'https://via.placeholder.com/150?text=No+Photo';
-            img.className = "w-full h-32 object-cover rounded-md shadow-sm";
-            container.appendChild(img);
-
-            // Status badge - убеждаемся, что type определен
-            const petType = pet.type || 'lost'; // Значение по умолчанию
-            const isLost = petType === 'lost';
-            const statusBadge = document.createElement('div');
-            statusBadge.innerText = isLost ? 'Потерян' : 'Найден';
-            statusBadge.className = `inline-block px-2 py-1 rounded text-xs font-bold ${
-                isLost ? 'bg-red-500 text-white' : 'bg-green-500 text-white'
-            }`;
-            statusBadge.style.width = 'fit-content';
-            container.appendChild(statusBadge);
-
-            const title = document.createElement('h3');
-            title.innerText = pet.petName || 'Без клички';
-            title.className = `font-bold text-lg m-0 leading-tight ${
-                isLost ? 'text-red-600' : 'text-green-600'
-            }`;
-            container.appendChild(title);
-
-            const subtitle = document.createElement('p');
-            subtitle.innerText = `${pet.breed || 'Не указана'} • ${pet.color || 'Не указан'}`;
-            subtitle.className = "text-sm text-slate-500 m-0 mt-0.5 uppercase tracking-wide";
-            container.appendChild(subtitle);
-
-            const btn = document.createElement('button');
-            btn.innerText = "Подробнее";
-            btn.className = "mt-2 px-3 py-2 bg-indigo-600 text-white text-sm font-bold rounded hover:bg-indigo-700 transition-colors w-full";
-            btn.onclick = (e) => {
-                e.stopPropagation();
-                // Данные уже нормализованы при загрузке, но убеждаемся, что type определен
-                // для совместимости со старыми записями
-                const petToShow: PetReport = {
-                    ...pet,
-                    type: pet.type || 'lost' // Гарантируем наличие type
-                };
-                // Вызываем onPetClick, который откроет то же модальное окно, что и из списка
-                onPetClick(petToShow);
-            };
-            container.appendChild(btn);
-
-            marker.bindPopup(container);
-            clusterGroupRef.current.addLayer(marker);
-            markers.push(marker);
-        });
-
-        map.addLayer(clusterGroupRef.current);
-
-        // Fit bounds if markers exist
-        if (markers.length > 0) {
-            map.fitBounds(clusterGroupRef.current.getBounds(), { padding: [50, 50], maxZoom: 15 });
-        } else {
-             // If no pets, maybe center on user or default
-             map.setView([55.7558, 37.6173], 10);
-        }
-
-    }, [activePets, onPetClick]);
-
-    const loading = false; // Больше не нужно, данные приходят через пропсы
-
-    return (
-        <div className="relative w-full h-[calc(100vh-64px)] z-0">
-            <div ref={mapRef} className="w-full h-full" />
-
-            {/* Loading overlay */}
-            {loading && (
-                <div className="absolute inset-0 bg-white bg-opacity-80 flex items-center justify-center z-[500]">
-                    <div className="flex flex-col items-center gap-3">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-                        <p className="text-slate-600 font-medium">Загрузка объявлений...</p>
-                    </div>
-                </div>
-            )}
-
-            {/* Legend Overlay */}
-            <div className="absolute top-4 right-4 bg-white p-4 rounded-lg shadow-lg z-[400] text-sm font-medium space-y-2">
-                <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-red-500 border border-white shadow-sm"></div>
-                    <span>Потерянные</span>
-                </div>
-                <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-green-500 border border-white shadow-sm"></div>
-                    <span>Найденные</span>
-                </div>
-            </div>
-        </div>
-    );
-}
+// MapView moved to components/MapView.tsx
 
 const PublicProfileView: React.FC<{ 
     userId: string, 
@@ -1956,6 +1787,54 @@ export default function App() {
       return parts.join(', ');
   };
 
+  // ===== Общая фильтрация (используется и списком, и картой) =====
+  const filterPet = useCallback((pet: PetReport) => {
+    // 1. Species Filter
+    if (speciesFilter !== 'all' && pet.species !== speciesFilter) return false;
+
+    // 2. Breed Filter
+    if (breedFilter !== 'all' && pet.breed !== breedFilter) return false;
+
+    // 3. Date Filter
+    if (dateFilter !== 'all') {
+      const petDate = new Date(pet.date).getTime();
+      const now = Date.now();
+      const oneDay = 24 * 60 * 60 * 1000;
+      if (dateFilter === 'today' && (now - petDate) > oneDay) return false;
+      if (dateFilter === '3days' && (now - petDate) > (3 * oneDay)) return false;
+      if (dateFilter === 'week' && (now - petDate) > (7 * oneDay)) return false;
+      if (dateFilter === 'month' && (now - petDate) > (30 * oneDay)) return false;
+    }
+
+    // 4. Location Filter (Enhanced with Radius)
+    if (searchCoords) {
+      if (pet.lat && pet.lng) {
+        const distance = getDistanceFromLatLonInKm(searchCoords.lat, searchCoords.lng, pet.lat, pet.lng);
+        if (distance > searchRadius) return false;
+      } else {
+        return false;
+      }
+    } else if (locationFilter && locationFilter !== '📍 Мое местоположение') {
+      if (!pet.lastSeenLocation.toLowerCase().includes(locationFilter.toLowerCase())) {
+        return false;
+      }
+    }
+
+    return true;
+  }, [speciesFilter, breedFilter, dateFilter, searchCoords, searchRadius, locationFilter]);
+
+  // Отфильтрованные списки (общие для карты и главной)
+  const filteredLostPets = useMemo(() => lostPets.filter(filterPet), [lostPets, filterPet]);
+  const filteredFoundPets = useMemo(() => foundPets.filter(filterPet), [foundPets, filterPet]);
+
+  // Отфильтрованные reports для карты (тип + общие фильтры)
+  const filteredReportsForMap = useMemo(() => {
+    let filtered = reports.filter(p => p.status !== 'resolved').filter(filterPet);
+    if (filterType === 'lost') filtered = filtered.filter(p => p.type === 'lost');
+    if (filterType === 'found') filtered = filtered.filter(p => p.type === 'found');
+    return filtered;
+  }, [reports, filterPet, filterType]);
+
   const renderContent = () => {
     switch (view) {
       case 'login':
@@ -1999,66 +1878,46 @@ export default function App() {
          const candidates = activeSearchPet?.type === 'found' ? lostPets : foundPets;
          return activeSearchPet && <ResultsView pet={activeSearchPet} matches={matches} candidates={candidates} error={error} onBack={() => setView('home')} onPetClick={handlePetClick} onUserClick={handleUserClick} />;
       case 'map':
-          return <MapView reports={reports} onPetClick={handlePetClick} />;
+          return <MapView 
+            reports={filteredReportsForMap} 
+            onPetClick={handlePetClick}
+            filterType={filterType}
+            setFilterType={setFilterType}
+            speciesFilter={speciesFilter}
+            setSpeciesFilter={setSpeciesFilter}
+            dateFilter={dateFilter}
+            setDateFilter={setDateFilter}
+            searchCoords={searchCoords}
+            setSearchCoords={setSearchCoords}
+            searchRadius={searchRadius}
+            setSearchRadius={setSearchRadius}
+            isLocatingUser={isLocatingUser}
+            onUseMyLocation={handleUseMyLocation}
+          />;
       case 'privacy':
           return <PrivacyPolicyView onBack={() => setView('home')} />;
       case 'terms':
           return <TermsView onBack={() => setView('home')} />;
       case 'home':
       default:
+        // Дополнительная фильтрация по текстовому поиску (только для списка)
         const searchTerms = searchTerm.toLowerCase().split(/\s+/).filter(t => t.length > 0);
-        
-        const filterPetByTerms = (pet: PetReport) => {
-            // 1. Species Filter
-            if (speciesFilter !== 'all' && pet.species !== speciesFilter) return false;
-            
-            // 2. Breed Filter
-            if (breedFilter !== 'all' && pet.breed !== breedFilter) return false;
-
-            // 3. Date Filter
-            if (dateFilter !== 'all') {
-                const petDate = new Date(pet.date).getTime();
-                const now = Date.now();
-                const oneDay = 24 * 60 * 60 * 1000;
-                
-                if (dateFilter === 'today' && (now - petDate) > oneDay) return false;
-                if (dateFilter === '3days' && (now - petDate) > (3 * oneDay)) return false;
-                if (dateFilter === 'week' && (now - petDate) > (7 * oneDay)) return false;
-                if (dateFilter === 'month' && (now - petDate) > (30 * oneDay)) return false;
-            }
-
-            // 4. Location Filter (Enhanced with Radius)
-            if (searchCoords) {
-                // Geo-search active
-                if (pet.lat && pet.lng) {
-                     const distance = getDistanceFromLatLonInKm(searchCoords.lat, searchCoords.lng, pet.lat, pet.lng);
-                     if (distance > searchRadius) return false;
-                } else {
-                    // Exclude pets without coordinates when in geo-mode
-                    return false;
-                }
-            } else if (locationFilter) {
-                // Text search fallback
-                if (!pet.lastSeenLocation.toLowerCase().includes(locationFilter.toLowerCase())) {
-                    return false;
-                }
-            }
-
-            // 5. Search Text
-            if (searchTerms.length === 0) return true;
-            const petDataString = [
-                pet.petName || '',
-                pet.breed,
-                pet.color,
-                pet.lastSeenLocation,
-                pet.description
-            ].join(' ').toLowerCase();
-            
-            return searchTerms.every(term => petDataString.includes(term));
+        const applyTextSearch = (pets: PetReport[]) => {
+            if (searchTerms.length === 0) return pets;
+            return pets.filter(pet => {
+                const petDataString = [
+                    pet.petName || '',
+                    pet.breed,
+                    pet.color,
+                    pet.lastSeenLocation,
+                    pet.description
+                ].join(' ').toLowerCase();
+                return searchTerms.every(term => petDataString.includes(term));
+            });
         };
 
-        const filteredLostPets = lostPets.filter(filterPetByTerms);
-        const filteredFoundPets = foundPets.filter(filterPetByTerms);
+        const homeFilteredLost = applyTextSearch(filteredLostPets);
+        const homeFilteredFound = applyTextSearch(filteredFoundPets);
 
         const renderEmptyState = (type: 'lost' | 'found') => {
             const emptyStateTitle = type === 'lost' ? 'Нет потерянных' : 'Нет находок';
@@ -2207,9 +2066,9 @@ export default function App() {
                             <h2 className="text-2xl md:text-4xl font-bold text-slate-800">Недавно потерянные</h2>
                             <p className="text-sm md:text-base text-slate-600 mt-1 md:mt-2">Можете помочь им воссоединиться с семьей?</p>
                         </div>
-                        {filteredLostPets.length > 0 ? (
+                        {homeFilteredLost.length > 0 ? (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-8">
-                            {filteredLostPets.map(pet => (
+                            {homeFilteredLost.map(pet => (
                             <PetCard
                                 key={pet.id}
                                 pet={pet}
@@ -2231,9 +2090,9 @@ export default function App() {
                             <h2 className="text-2xl md:text-4xl font-bold text-slate-800">Недавно найденные</h2>
                             <p className="text-sm md:text-base text-slate-600 mt-1 md:mt-2">Помогите этим питомцам найти своих хозяев.</p>
                         </div>
-                        {filteredFoundPets.length > 0 ? (
+                        {homeFilteredFound.length > 0 ? (
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-8">
-                            {filteredFoundPets.map(pet => (
+                            {homeFilteredFound.map(pet => (
                             <PetCard
                                 key={pet.id}
                                 pet={pet}
