@@ -472,6 +472,7 @@ const MapView: React.FC<{
 }> = ({ reports, onPetClick }) => {
     const mapRef = useRef<HTMLDivElement>(null);
     const mapInstanceRef = useRef<any>(null);
+    const clusterGroupRef = useRef<any>(null);
 
     // Filter active pets with coordinates
     const activePets = useMemo(() => {
@@ -490,8 +491,10 @@ const MapView: React.FC<{
             // Add attribution
             window.L.control.attribution({ prefix: false }).addTo(map);
 
-            window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; OpenStreetMap'
+            window.L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+                subdomains: 'abcd',
+                maxZoom: 19
             }).addTo(map);
 
             // Default view (will be overridden by bounds)
@@ -502,11 +505,15 @@ const MapView: React.FC<{
 
         const map = mapInstanceRef.current;
 
-        // Clear existing markers
-        map.eachLayer((layer: any) => {
-            if (layer instanceof window.L.Marker) {
-                map.removeLayer(layer);
-            }
+        // Clear existing cluster group
+        if (clusterGroupRef.current) {
+            map.removeLayer(clusterGroupRef.current);
+        }
+        clusterGroupRef.current = window.L.markerClusterGroup({
+            showCoverageOnHover: false,
+            maxClusterRadius: 50,
+            spiderfyOnMaxZoom: true,
+            zoomToBoundsOnClick: true
         });
 
         // Helper to create custom colored icons
@@ -585,14 +592,15 @@ const MapView: React.FC<{
             container.appendChild(btn);
 
             marker.bindPopup(container);
-            marker.addTo(map);
+            clusterGroupRef.current.addLayer(marker);
             markers.push(marker);
         });
 
+        map.addLayer(clusterGroupRef.current);
+
         // Fit bounds if markers exist
         if (markers.length > 0) {
-            const group = window.L.featureGroup(markers);
-            map.fitBounds(group.getBounds(), { padding: [50, 50], maxZoom: 15 });
+            map.fitBounds(clusterGroupRef.current.getBounds(), { padding: [50, 50], maxZoom: 15 });
         } else {
              // If no pets, maybe center on user or default
              map.setView([55.7558, 37.6173], 10);
