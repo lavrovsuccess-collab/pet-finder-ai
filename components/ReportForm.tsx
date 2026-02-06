@@ -4,6 +4,7 @@ import { analyzePetImage } from '../services/geminiService';
 import { MapPinIcon, TrashIcon } from './icons';
 import { db } from '../src/firebase';
 import { addDoc, collection, updateDoc, doc } from 'firebase/firestore';
+import toast from 'react-hot-toast';
 
 // Declare Leaflet on window
 declare global {
@@ -326,6 +327,7 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
           mainPhoto: photos[0] || '',
         });
         console.log('✅ [ReportForm] Объявление обновлено в reports');
+        toast.success('Изменения сохранены');
       } else {
         // Создание нового объявления
         console.log('📤 [ReportForm] Режим создания нового объявления');
@@ -340,6 +342,7 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
         console.log('📤 [ReportForm] Отправляем в Firebase...');
         const docRef = await addDoc(collection(db, 'reports'), fullReportData);
         console.log('✅ [ReportForm] УРА! Объявление сохранено, id:', docRef.id);
+        toast.success('Объявление опубликовано');
       }
       
       // Очищаем форму
