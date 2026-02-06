@@ -341,9 +341,6 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
         const docRef = await addDoc(collection(db, 'reports'), fullReportData);
         console.log('✅ [ReportForm] УРА! Объявление сохранено, id:', docRef.id);
       }
-
-      // Показываем сообщение об успехе
-      alert('✅ Объявление успешно опубликовано!');
       
       // Очищаем форму
       setSpecies('dog');
@@ -379,6 +376,7 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
     : formType === 'lost' ? 'Я потерял питомца' : 'Я нашел питомца';
   const locationLabel = formType === 'lost' ? 'Где видели в последний раз' : 'Где был найден';
   const submitButtonText = initialData ? 'Сохранить изменения' : 'Опубликовать';
+  const submittingButtonText = initialData ? 'Сохранение...' : 'Публикуем...';
   const nameLabel = formType === 'lost' ? 'Кличка питомца' : 'Кличка (если известна)';
 
   return (
@@ -558,7 +556,7 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
             disabled={isSubmitting}
             className={`w-full sm:w-auto px-6 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 ${isSubmitting ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'}`}
           >
-            {isSubmitting ? 'Сохранение...' : submitButtonText}
+            {isSubmitting ? submittingButtonText : submitButtonText}
           </button>
         </div>
       </form>

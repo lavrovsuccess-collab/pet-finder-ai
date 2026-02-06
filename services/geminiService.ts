@@ -73,7 +73,7 @@ async function callOpenRouter(messages: any[]): Promise<string | null> {
 
       if (!response.ok) {
         console.error(`❌ Ошибка API ${response.status}:`, data.error?.message || data);
-        continue;
+        continue; 
       }
 
       const text = data.choices?.[0]?.message?.content;

@@ -4,10 +4,12 @@ import type { PetReport, MatchResult, Notification, UserProfile } from './types'
 import { findPetMatches } from './services/geminiService';
 import { PetCard } from './components/PetCard';
 import { ReportForm } from './components/ReportForm';
+import { ConfirmModal } from './components/ConfirmModal';
 import { PawIcon, SearchIcon, PlusCircleIcon, LogoIcon, UserCircleIcon, BellIcon, GoogleIcon, MapPinIcon, PhoneIcon, PencilIcon, CalendarIcon, ChevronDownIcon, CrosshairIcon, MapIcon, CameraIcon } from './components/icons';
 import { auth, db } from './src/firebase';
 import { signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged } from 'firebase/auth';
 import { doc, setDoc, getDoc, collection, getDocs, onSnapshot, deleteDoc, updateDoc } from 'firebase/firestore';
+import toast, { Toaster } from 'react-hot-toast';
 
 type View = 'home' | 'reportLost' | 'reportFound' | 'matching' | 'results' | 'account' | 'login' | 'editReport' | 'lostPetDetail' | 'petDetail' | 'publicProfile' | 'map' | 'privacy' | 'terms';
 
@@ -1477,6 +1479,8 @@ const imageUrlToBase64 = async (url: string): Promise<string> => {
 export default function App() {
   const [view, setView] = useState<View>('home');
   const [previousView, setPreviousView] = useState<View>('home');
+  const [deleteConfirmPetId, setDeleteConfirmPetId] = useState<string | null>(null);
+  const [isDeletingReport, setIsDeletingReport] = useState(false);
   
   // Helper to migrate old data structure (single photo) to new (array photos) and add status/date
   const migratePetData = (data: any[]): PetReport[] => {
@@ -1566,6 +1570,11 @@ export default function App() {
   const [speciesFilter, setSpeciesFilter] = useState<string>('all');
   const [breedFilter, setBreedFilter] = useState<string>('all');
   const [dateFilter, setDateFilter] = useState<string>('all');
+
+  const petPendingDelete = useMemo(
+    () => (deleteConfirmPetId ? reports.find(p => p.id === deleteConfirmPetId) : null),
+    [deleteConfirmPetId, reports]
+  );
 
   // Reset breed filter when species changes
   useEffect(() => {
@@ -1709,7 +1718,7 @@ export default function App() {
       const currentUserId = localStorage.getItem('petFinderUserId');
       
       if (pet.userId !== currentUserId) {
-        alert('Вы можете изменять статус только своих объявлений');
+        toast.error('Вы можете изменять статус только своих объявлений');
         return;
       }
       
@@ -1722,13 +1731,13 @@ export default function App() {
         // onSnapshot автоматически обновит стейт reports
       } catch (error) {
         console.error('Error updating report status:', error);
-        alert('Не удалось изменить статус объявления. Попробуйте еще раз.');
+        toast.error('Не удалось изменить статус объявления. Попробуйте еще раз.');
       }
   };
 
   const handleStartAiSearch = useCallback(async (petToMatch: PetReport) => {
     if (!currentUser) {
-        alert("Пожалуйста, войдите в систему для поиска.");
+        toast('Пожалуйста, войдите в систему для поиска', { icon: '🔐' });
         setView('login');
         return;
     }
@@ -1810,7 +1819,7 @@ export default function App() {
     
     if (!currentUser) {
         console.log('❌ [App] Нет currentUser, переходим на login');
-        alert("Пожалуйста, войдите в систему, чтобы подать объявление.");
+        toast('Пожалуйста, войдите в систему, чтобы подать объявление', { icon: '🔐' });
         setView('login');
         return;
     }
@@ -1837,28 +1846,46 @@ export default function App() {
     const currentUserId = localStorage.getItem('petFinderUserId');
     
     if (!pet || pet.userId !== currentUserId) {
-      alert('Вы можете удалять только свои объявления');
+      toast.error('Вы можете удалять только свои объявления');
       return;
     }
     
-    if (window.confirm("Вы уверены, что хотите удалить это объявление?")) {
-      try {
-        const reportRef = doc(db, 'reports', petId);
-        await deleteDoc(reportRef);
-        // onSnapshot автоматически обновит стейт reports
-      } catch (error) {
-        console.error('Error deleting report:', error);
-        alert('Не удалось удалить объявление. Попробуйте еще раз.');
-      }
-    }
+    setDeleteConfirmPetId(petId);
   };
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!deleteConfirmPetId) return;
+    if (isDeletingReport) return;
+
+    const pet = reports.find(p => p.id === deleteConfirmPetId);
+    const currentUserId = localStorage.getItem('petFinderUserId');
+
+    if (!pet || pet.userId !== currentUserId) {
+      toast.error('Вы можете удалять только свои объявления');
+      setDeleteConfirmPetId(null);
+      return;
+    }
+
+    try {
+      setIsDeletingReport(true);
+      const reportRef = doc(db, 'reports', deleteConfirmPetId);
+      await deleteDoc(reportRef);
+      toast.success('Объявление удалено');
+      setDeleteConfirmPetId(null);
+    } catch (error) {
+      console.error('Error deleting report:', error);
+      toast.error('Не удалось удалить объявление. Попробуйте еще раз.');
+    } finally {
+      setIsDeletingReport(false);
+    }
+  }, [deleteConfirmPetId, isDeletingReport, reports]);
 
   const handleEdit = (pet: PetReport) => {
     // Проверка прав доступа: только владелец может редактировать
     const currentUserId = localStorage.getItem('petFinderUserId');
     
     if (pet.userId !== currentUserId) {
-      alert('Вы можете редактировать только свои объявления');
+      toast.error('Вы можете редактировать только свои объявления');
       return;
     }
     
@@ -1872,7 +1899,7 @@ export default function App() {
 
   const handleUseMyLocation = () => {
     if (!navigator.geolocation) {
-        alert("Геолокация не поддерживается вашим браузером");
+        toast.error('Геолокация не поддерживается вашим браузером');
         return;
     }
     setIsLocatingUser(true);
@@ -1887,7 +1914,7 @@ export default function App() {
         },
         (err) => {
             console.error(err);
-            alert("Не удалось определить местоположение. Проверьте разрешения браузера.");
+            toast.error('Не удалось определить местоположение. Проверьте разрешения браузера.');
             setIsLocatingUser(false);
         }
     );
@@ -2226,6 +2253,34 @@ export default function App() {
         isOpen={isLoginModalOpen} 
         onClose={() => setIsLoginModalOpen(false)} 
         onLoginSuccess={handleLoginSuccess} 
+      />
+      <Toaster
+        position="top-center"
+        toastOptions={{
+          duration: 3000,
+          style: {
+            background: '#333',
+            color: '#fff',
+          },
+        }}
+      />
+      <ConfirmModal
+        isOpen={deleteConfirmPetId !== null}
+        title="Удалить объявление?"
+        description={
+          petPendingDelete
+            ? `Вы точно хотите удалить объявление${petPendingDelete.petName ? ` “${petPendingDelete.petName}”` : ''}? Это действие нельзя отменить.`
+            : 'Вы точно хотите удалить это объявление? Это действие нельзя отменить.'
+        }
+        confirmText="Удалить"
+        cancelText="Отмена"
+        confirmVariant="danger"
+        isConfirmLoading={isDeletingReport}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => {
+          if (isDeletingReport) return;
+          setDeleteConfirmPetId(null);
+        }}
       />
       <main className="flex-grow">
         {renderContent()}
