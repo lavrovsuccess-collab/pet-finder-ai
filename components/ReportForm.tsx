@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import type { PetReport } from '../types';
 import { analyzePetImage } from '../services/geminiService';
 import { MapPinIcon, TrashIcon } from './icons';
-import { db } from '../src/firebase';
+import { db, auth } from '../src/firebase';
 import { addDoc, collection, updateDoc, doc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 
@@ -27,8 +27,15 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
   const [breed, setBreed] = useState('');
   const [color, setColor] = useState('');
   const [lastSeenLocation, setLastSeenLocation] = useState('');
+  const [city, setCity] = useState('');
+  const [region, setRegion] = useState('');
   const [coordinates, setCoordinates] = useState<{lat: number, lng: number} | null>(null);
   const [description, setDescription] = useState('');
+  const [specialMarks, setSpecialMarks] = useState('');
+  const [hasCollar, setHasCollar] = useState(false);
+  const [collarColor, setCollarColor] = useState('');
+  const [isChipped, setIsChipped] = useState(false);
+  const [keptByFinder, setKeptByFinder] = useState(true);
   const [contactInfo, setContactInfo] = useState('');
   
   const [photos, setPhotos] = useState<string[]>([]);
@@ -50,7 +57,14 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
       setBreed(initialData.breed);
       setColor(initialData.color);
       setLastSeenLocation(initialData.lastSeenLocation);
+      setCity(initialData.city ?? '');
+      setRegion(initialData.region ?? '');
       setDescription(initialData.description);
+      setSpecialMarks(initialData.specialMarks ?? '');
+      setHasCollar(initialData.hasCollar ?? false);
+      setCollarColor(initialData.collarColor ?? '');
+      setIsChipped(initialData.isChipped ?? false);
+      setKeptByFinder(initialData.keptByFinder ?? true);
       setContactInfo(initialData.contactInfo);
       setPhotos(initialData.photos || []);
       if (initialData.lat && initialData.lng) {
@@ -135,20 +149,40 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
 
   const fetchAddress = async (lat: number, lng: number) => {
       try {
-          // Using OpenStreetMap Nominatim for reverse geocoding (Free)
-          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`);
+          const response = await fetch(
+              `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&addressdetails=1`,
+              { headers: { 'Accept-Language': 'ru', 'User-Agent': 'PetFinder/1.0' } }
+          );
           const data = await response.json();
-          
-          if (data && data.display_name) {
-              // Simplify address (take first 3 parts usually works well for street/city)
-              const parts = data.display_name.split(', ');
-              const simplified = parts.slice(0, 3).join(', ');
-              setLastSeenLocation(simplified);
+
+          if (data && data.address) {
+              const addr = data.address;
+              const cityPart = addr.city || addr.town || addr.village || addr.municipality || addr.hamlet || '';
+              const regionPart = addr.state || addr.region || '';
+              const districtPart = addr.suburb || addr.city_district || addr.district || '';
+              const streetName = addr.road || addr.street || addr.footway || '';
+              const streetPart = streetName && addr.house_number
+                  ? `${streetName}, ${addr.house_number}` : (streetName || addr.house_number || '');
+
+              const parts = [cityPart, regionPart, districtPart, streetPart].filter(Boolean);
+              const fullAddress = parts.length > 0 ? parts.join(', ') : (data.display_name || `${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+
+              setCity(cityPart);
+              setRegion(regionPart);
+              setLastSeenLocation(fullAddress);
+          } else if (data && data.display_name) {
+              setCity('');
+              setRegion('');
+              setLastSeenLocation(data.display_name.split(', ').slice(0, 4).join(', '));
           } else {
+              setCity('');
+              setRegion('');
               setLastSeenLocation(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
           }
       } catch (error) {
           console.error("Geocoding error:", error);
+          setCity('');
+          setRegion('');
           setLastSeenLocation(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
       }
   };
@@ -174,8 +208,8 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
           const img = new Image();
           img.src = event.target?.result as string;
           img.onload = async () => {
-            const MAX_WIDTH = 800;
-            const MAX_HEIGHT = 800;
+            const MAX_WIDTH = 600;
+            const MAX_HEIGHT = 600;
             let width = img.width;
             let height = img.height;
 
@@ -197,11 +231,10 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
             const ctx = canvas.getContext('2d');
             let dataUrl = event.target?.result as string;
 
-             if (ctx) {
-                ctx.drawImage(img, 0, 0, width, height);
-                // Сохраняем как JPEG с качеством 0.6 в формате Base64
-                dataUrl = canvas.toDataURL('image/jpeg', 0.6);
-             }
+            if (ctx) {
+              ctx.drawImage(img, 0, 0, width, height);
+              dataUrl = canvas.toDataURL('image/jpeg', 0.5);
+            }
             
             setPhotos(prev => [...prev, dataUrl]);
 
@@ -213,7 +246,13 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
                       setSpecies(analysis.species);
                       setBreed(analysis.breed);
                       setColor(analysis.color);
-                      setDescription(analysis.description);
+                      setDescription(analysis.description ?? '');
+                      setSpecialMarks(analysis.specialMarks ?? '');
+                      setHasCollar(analysis.hasCollar ?? false);
+                      setCollarColor(analysis.collarColor ?? '');
+                      if (formType === 'found' && analysis.shortTitle) {
+                          setPetName(analysis.shortTitle);
+                      }
                   }
               } catch (err) {
                   console.error("Failed to analyze image:", err);
@@ -292,31 +331,55 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
     
     if (photos.length === 0) {
       setError('Пожалуйста, загрузите хотя бы одну фотографию.');
-      console.log('❌ [ReportForm] Нет фотографий, прерываем');
+      return;
+    }
+    if (!coordinates || !coordinates.lat || !coordinates.lng) {
+      setError('Укажите точку на карте — где животное было потеряно или найдено.');
+      return;
+    }
+    const trimmedContact = (contactInfo || '').trim();
+    if (!trimmedContact || trimmedContact === 'Не указано') {
+      setError('Укажите контакт: телефон или WhatsApp/Telegram — чтобы с вами могли связаться.');
+      return;
+    }
+    setError('');
+    setIsSubmitting(true);
+    console.log('📤 [ReportForm] Начинаем сохранение...');
+
+    const currentUserId = localStorage.getItem('petFinderUserId');
+    if (!auth.currentUser) {
+      setError('Сессия истекла. Выйдите и войдите снова через Google.');
+      setIsSubmitting(false);
+      return;
+    }
+    if (!currentUserId || currentUserId === 'anonymous') {
+      setError('Сначала войдите в аккаунт через Google.');
+      setIsSubmitting(false);
       return;
     }
     
-    setIsSubmitting(true);
-    setError('');
-    console.log('📤 [ReportForm] Начинаем сохранение...');
-    
-    const reportData: Omit<PetReport, 'id' | 'type' | 'userId' | 'status' | 'date'> & { mainPhoto: string } = {
+    // Firestore НЕ принимает undefined — используем null или не включаем поле
+    const reportData: Record<string, any> = {
       species,
       petName: petName || '',
       breed: breed || 'Не указана',
       color: color || 'Не указан',
       lastSeenLocation: lastSeenLocation || 'Не указано',
-      lat: coordinates?.lat ?? 0,
-      lng: coordinates?.lng ?? 0,
+      lat: coordinates!.lat,
+      lng: coordinates!.lng,
       description: description || 'Нет описания',
-      contactInfo: contactInfo || 'Не указано',
+      hasCollar: hasCollar,
+      isChipped: isChipped,
+      contactInfo: trimmedContact,
       photos: photos || [],
-      mainPhoto: photos[0] || '',
     };
+    if (city) reportData.city = city;
+    if (region) reportData.region = region;
+    if (specialMarks) reportData.specialMarks = specialMarks;
+    if (hasCollar && collarColor) reportData.collarColor = collarColor;
+    if (formType === 'found') reportData.keptByFinder = keptByFinder;
 
     try {
-      // Получаем Firebase UID текущего пользователя (для Security Rules)
-      const currentUserId = localStorage.getItem('petFinderUserId');
       console.log('📤 [ReportForm] currentUserId:', currentUserId);
       console.log('📤 [ReportForm] reportData:', JSON.stringify(reportData, null, 2).substring(0, 500));
       
@@ -324,10 +387,7 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
         // Редактирование существующего объявления
         console.log('📤 [ReportForm] Режим редактирования, id:', initialData.id);
         const reportRef = doc(db, 'reports', initialData.id);
-        await updateDoc(reportRef, {
-          ...reportData,
-          mainPhoto: photos[0] || '',
-        });
+        await updateDoc(reportRef, reportData);
         console.log('✅ [ReportForm] Объявление обновлено в reports');
         toast.success('Изменения сохранены');
       } else {
@@ -336,7 +396,7 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
         const fullReportData = {
           ...reportData,
           type: formType,
-          userId: currentUserId || 'anonymous',
+          userId: currentUserId,
           status: 'active' as const,
           date: new Date().toISOString()
         };
@@ -353,8 +413,15 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
       setBreed('');
       setColor('');
       setLastSeenLocation('');
+      setCity('');
+      setRegion('');
       setCoordinates(null);
       setDescription('');
+      setSpecialMarks('');
+      setHasCollar(false);
+      setCollarColor('');
+      setIsChipped(false);
+      setKeptByFinder(true);
       setContactInfo(defaultContactInfo || '');
       setPhotos([]);
       console.log('✅ [ReportForm] Форма очищена');
@@ -368,9 +435,19 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
       onCancel();
     } catch (err: any) {
       console.error('❌ [ReportForm] Ошибка при сохранении:', err);
-      console.error('❌ [ReportForm] Тип ошибки:', err?.code);
-      console.error('❌ [ReportForm] Сообщение:', err?.message);
-      setError('Не удалось сохранить объявление. Попробуйте еще раз.');
+      console.error('❌ [ReportForm] code:', err?.code, 'message:', err?.message);
+      const code = err?.code || '';
+      const msg = err?.message || '';
+      let userMsg = 'Не удалось сохранить объявление. Попробуйте еще раз.';
+      if (code === 'permission-denied' || msg.includes('permission-denied')) {
+        userMsg = 'Доступ запрещён. Выйдите и войдите снова через Google.';
+      } else if (code === 'unauthenticated' || msg.includes('unauthenticated')) {
+        userMsg = 'Сессия истекла. Выйдите и войдите снова.';
+      } else if (msg.includes('Payload') || msg.includes('too large') || msg.includes('exceeds the maximum')) {
+        userMsg = 'Документ слишком большой для Firestore. Попробуйте загрузить фото поменьше.';
+      }
+      // Показываем реальную ошибку для отладки
+      setError(`${userMsg}\n\n[Техническая информация: ${code || 'unknown'} — ${msg || 'нет деталей'}]`);
     } finally {
       setIsSubmitting(false);
     }
@@ -382,7 +459,8 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
   const locationLabel = formType === 'lost' ? 'Где видели в последний раз' : 'Где был найден';
   const submitButtonText = initialData ? 'Сохранить изменения' : 'Опубликовать';
   const submittingButtonText = initialData ? 'Сохранение...' : 'Публикуем...';
-  const nameLabel = formType === 'lost' ? 'Кличка питомца' : 'Кличка (если известна)';
+  const nameLabel = formType === 'lost' ? 'Кличка питомца' : 'Название объявления';
+  const namePlaceholder = formType === 'lost' ? '' : 'Например: Коричневая собака с ошейником, Белая пушистая кошечка';
 
   return (
     <div className="max-w-2xl mx-auto my-4 md:my-10 p-4 md:p-8 bg-white rounded-2xl shadow-xl">
@@ -461,7 +539,7 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
 
         <div>
             <label htmlFor="petName" className="block text-sm font-medium text-slate-700">{nameLabel}</label>
-            <input type="text" id="petName" value={petName} onChange={(e) => setPetName(e.target.value)} className="mt-1 block w-full px-4 py-2 bg-slate-50 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+            <input type="text" id="petName" value={petName} onChange={(e) => setPetName(e.target.value)} placeholder={namePlaceholder} className="mt-1 block w-full px-4 py-2 bg-slate-50 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
@@ -476,14 +554,39 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
         </div>
 
         <div>
-          <label htmlFor="description" className="block text-sm font-medium text-slate-700 mb-1">
-            Описание и особые приметы
-          </label>
-          <textarea id="description" value={description} onChange={(e) => setDescription(e.target.value)} rows={4} className="mt-1 block w-full px-4 py-2 bg-slate-50 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-sm" placeholder="Опишите внешность, ошейник, шрамы и другие приметы..."></textarea>
+          <label htmlFor="description" className="block text-sm font-medium text-slate-700 mb-1">Описание</label>
+          <textarea id="description" value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className="mt-1 block w-full px-4 py-2 bg-slate-50 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-sm" placeholder="Общее описание внешности..."></textarea>
         </div>
 
         <div>
-          <label htmlFor="lastSeenLocation" className="block text-sm font-medium text-slate-700">{locationLabel}</label>
+          <label htmlFor="specialMarks" className="block text-sm font-medium text-slate-700 mb-1">
+            Особые приметы <span className="text-slate-400 font-normal">(пятна, шрамы, хромота, форма ушей, хвост)</span>
+          </label>
+          <textarea id="specialMarks" value={specialMarks} onChange={(e) => setSpecialMarks(e.target.value)} rows={2} className="mt-1 block w-full px-4 py-2 bg-slate-50 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-sm" placeholder="Проверьте и дополните после ИИ-анализа"></textarea>
+        </div>
+
+        <div className="flex flex-wrap gap-4 md:gap-6">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={hasCollar} onChange={(e) => setHasCollar(e.target.checked)} className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+            <span className="text-sm font-medium text-slate-700">Есть ошейник</span>
+          </label>
+          {hasCollar && (
+            <input type="text" value={collarColor} onChange={(e) => setCollarColor(e.target.value)} placeholder="Цвет ошейника" className="px-3 py-1.5 text-sm border border-slate-300 rounded-md w-40" />
+          )}
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={isChipped} onChange={(e) => setIsChipped(e.target.checked)} className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+            <span className="text-sm font-medium text-slate-700">Чипирован(а)</span>
+          </label>
+          {formType === 'found' && (
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={keptByFinder} onChange={(e) => setKeptByFinder(e.target.checked)} className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+              <span className="text-sm font-medium text-slate-700">Оставил(а) у себя</span>
+            </label>
+          )}
+        </div>
+
+        <div>
+          <label htmlFor="lastSeenLocation" className="block text-sm font-medium text-slate-700">{locationLabel} *</label>
           <div className="relative mt-1">
             <input 
                 type="text" 
@@ -546,8 +649,8 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
         </div>
 
         <div>
-          <label htmlFor="contactInfo" className="block text-sm font-medium text-slate-700">Ваша контактная информация</label>
-          <input type="text" id="contactInfo" value={contactInfo} onChange={(e) => setContactInfo(e.target.value)} className="mt-1 block w-full px-4 py-2 bg-slate-50 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+          <label htmlFor="contactInfo" className="block text-sm font-medium text-slate-700">Контактная информация *</label>
+          <input type="text" id="contactInfo" value={contactInfo} onChange={(e) => setContactInfo(e.target.value)} className="mt-1 block w-full px-4 py-2 bg-slate-50 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-sm" placeholder="Имя, телефон или WhatsApp/Telegram — обязательно для связи" />
         </div>
 
         {error && <p className="text-sm text-red-600 font-medium">{error}</p>}

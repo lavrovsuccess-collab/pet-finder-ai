@@ -9,9 +9,16 @@ export interface PetReport {
   breed: string;
   color: string;
   lastSeenLocation: string;
+  city?: string;   // Город/населённый пункт (для поиска)
+  region?: string; // Область (для поиска)
   lat?: number; // Широта
   lng?: number; // Долгота
   description: string;
+  specialMarks?: string;   // Особые приметы: пятна, шрамы, хромота и т.д.
+  hasCollar?: boolean;     // Есть ли ошейник
+  collarColor?: string;    // Цвет ошейника (если есть)
+  isChipped?: boolean;     // Чипировано ли животное
+  keptByFinder?: boolean; // Только для "Нашёл": оставил у себя (true) или сфоткал и ушёл (false)
   contactInfo: string;
   photos: string[]; // base64 encoded images (Array)
   date: string; // Дата публикации (ISO string)

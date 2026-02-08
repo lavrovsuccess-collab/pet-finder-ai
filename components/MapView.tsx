@@ -1,6 +1,5 @@
 import React, { useRef, useEffect, useMemo } from 'react';
 import type { PetReport } from '../types';
-import { CrosshairIcon } from './icons';
 
 // Declare Leaflet on window
 declare global {
@@ -18,10 +17,7 @@ interface MapViewProps {
   setSpeciesFilter: (v: string) => void;
   dateFilter: string;
   setDateFilter: (v: string) => void;
-  searchCoords: { lat: number; lng: number } | null;
-  setSearchCoords: (v: { lat: number; lng: number } | null) => void;
-  searchRadius: number;
-  setSearchRadius: (v: number) => void;
+  userLocation: { lat: number; lng: number } | null;
   isLocatingUser: boolean;
   onUseMyLocation: () => void;
 }
@@ -31,23 +27,22 @@ export const MapView: React.FC<MapViewProps> = ({
   filterType, setFilterType,
   speciesFilter, setSpeciesFilter,
   dateFilter, setDateFilter,
-  searchCoords, setSearchCoords,
-  searchRadius, setSearchRadius,
+  userLocation,
   isLocatingUser, onUseMyLocation
 }) => {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const clusterGroupRef = useRef<any>(null);
   const userMarkerRef = useRef<any>(null);
-  const radiusCircleRef = useRef<any>(null);
 
   const activePets = useMemo(() => reports.filter(p => p.lat && p.lng), [reports]);
 
   // Init map once
   useEffect(() => {
     if (!mapRef.current || !window.L || mapInstanceRef.current) return;
-    const map = window.L.map(mapRef.current, { attributionControl: false });
+    const map = window.L.map(mapRef.current, { attributionControl: false, zoomControl: false });
     window.L.control.attribution({ prefix: false }).addTo(map);
+    window.L.control.zoom({ position: 'bottomright' }).addTo(map);
     window.L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
       subdomains: 'abcd',
@@ -140,52 +135,55 @@ export const MapView: React.FC<MapViewProps> = ({
     }
   }, [activePets, onPetClick]);
 
-  // User location marker + radius circle
+  // Center map and show user marker when "Моё местоположение" is used
   useEffect(() => {
     if (!mapInstanceRef.current || !window.L) return;
     const map = mapInstanceRef.current;
 
-    if (userMarkerRef.current) { map.removeLayer(userMarkerRef.current); userMarkerRef.current = null; }
-    if (radiusCircleRef.current) { map.removeLayer(radiusCircleRef.current); radiusCircleRef.current = null; }
+    // Remove previous user marker
+    if (userMarkerRef.current) {
+      map.removeLayer(userMarkerRef.current);
+      userMarkerRef.current = null;
+    }
 
-    if (searchCoords) {
+    if (userLocation) {
+      map.setView([userLocation.lat, userLocation.lng], 14);
       const userIcon = window.L.divIcon({
         className: 'user-location-marker',
-        html: `<div style="width:16px;height:16px;background:#4F46E5;border:3px solid white;border-radius:50%;box-shadow:0 0 0 4px rgba(79,70,229,0.3),0 2px 8px rgba(0,0,0,0.3)"></div>`,
-        iconSize: [16, 16],
-        iconAnchor: [8, 8]
+        html: `<div style="background:#4285F4;width:14px;height:14px;border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3)"></div>`,
+        iconSize: [20, 20],
+        iconAnchor: [10, 10]
       });
-      userMarkerRef.current = window.L.marker([searchCoords.lat, searchCoords.lng], { icon: userIcon, zIndexOffset: 1000 })
-        .addTo(map)
-        .bindPopup('Центр поиска');
-
-      radiusCircleRef.current = window.L.circle([searchCoords.lat, searchCoords.lng], {
-        radius: searchRadius * 1000,
-        color: '#6366F1',
-        fillColor: '#6366F1',
-        fillOpacity: 0.08,
-        weight: 2,
-        dashArray: '6 4'
-      }).addTo(map);
-
-      map.fitBounds(radiusCircleRef.current.getBounds(), { padding: [30, 30] });
+      const marker = window.L.marker([userLocation.lat, userLocation.lng], { icon: userIcon });
+      marker.addTo(map);
+      userMarkerRef.current = marker;
     }
-  }, [searchCoords, searchRadius]);
-
-  // Click on map to set search center
-  useEffect(() => {
-    if (!mapInstanceRef.current) return;
-    const map = mapInstanceRef.current;
-    const onClick = (e: any) => {
-      setSearchCoords({ lat: e.latlng.lat, lng: e.latlng.lng });
-    };
-    map.on('click', onClick);
-    return () => { map.off('click', onClick); };
-  }, [setSearchCoords]);
+  }, [userLocation]);
 
   return (
-    <div className="relative w-full h-[calc(100vh-64px)] z-0">
+    <div className="relative w-full h-[calc(100vh-64px)] z-0 map-controls-wrapper">
       <div ref={mapRef} className="w-full h-full" />
+
+      {/* My Location - Google Maps style, below zoom controls */}
+      <div className="absolute bottom-2 right-2 z-[400] flex flex-col items-end map-my-location-btn">
+        <button
+          onClick={onUseMyLocation}
+          disabled={isLocatingUser}
+          className="w-10 h-10 flex items-center justify-center bg-white rounded shadow-[0_1px_4px_rgba(0,0,0,0.3)] border border-slate-200/80 hover:bg-slate-50 active:bg-slate-100 transition-all disabled:opacity-60"
+          title="Моё местоположение"
+        >
+          {isLocatingUser ? (
+            <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" style={{ color: '#4285F4' }}>
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-5 w-5" style={{ color: '#4285F4' }}>
+              <path fill="currentColor" d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0 0 13 3.06V1h-2v2.06A8.994 8.994 0 0 0 3.06 11H1v2h2.06A8.994 8.994 0 0 0 11 20.94V23h2v-2.06A8.994 8.994 0 0 0 20.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/>
+            </svg>
+          )}
+        </button>
+      </div>
 
       {/* Filter Panel */}
       <div className="absolute top-3 left-3 right-3 z-[400] pointer-events-none">
@@ -214,54 +212,9 @@ export const MapView: React.FC<MapViewProps> = ({
               <option value="week">За неделю</option>
               <option value="month">За месяц</option>
             </select>
-
-            {/* Radius */}
-            {searchCoords && (
-              <select value={searchRadius} onChange={(e) => setSearchRadius(Number(e.target.value))} className="px-2 py-1.5 text-xs border border-indigo-300 rounded-lg bg-indigo-50 text-indigo-700 font-medium">
-                <option value={1}>1 км</option>
-                <option value={3}>3 км</option>
-                <option value={5}>5 км</option>
-                <option value={10}>10 км</option>
-                <option value={25}>25 км</option>
-                <option value={50}>50 км</option>
-              </select>
-            )}
-
-            {/* Clear radius */}
-            {searchCoords && (
-              <button onClick={() => setSearchCoords(null)} className="px-2 py-1.5 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors">
-                Сбросить точку
-              </button>
-            )}
-
-            {/* Count */}
-            <span className="ml-auto text-xs text-slate-500 font-medium whitespace-nowrap">
-              {activePets.length} {activePets.length === 1 ? 'объявление' : activePets.length < 5 ? 'объявления' : 'объявлений'}
-            </span>
           </div>
-
-          {!searchCoords && (
-            <p className="text-[10px] text-slate-400 mt-1.5 leading-tight">Нажмите на карту, чтобы задать точку поиска по радиусу</p>
-          )}
         </div>
       </div>
-
-      {/* My Location button */}
-      <button
-        onClick={onUseMyLocation}
-        disabled={isLocatingUser}
-        className="absolute bottom-6 right-4 z-[400] bg-white hover:bg-slate-50 text-slate-700 p-3 rounded-full shadow-lg border border-slate-200 transition-all hover:shadow-xl disabled:opacity-60"
-        title="Моё местоположение"
-      >
-        {isLocatingUser ? (
-          <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-          </svg>
-        ) : (
-          <CrosshairIcon className="h-5 w-5" />
-        )}
-      </button>
 
       {/* Legend */}
       <div className="absolute bottom-6 left-4 bg-white/90 backdrop-blur-sm px-3 py-2 rounded-lg shadow-md z-[400] text-xs font-medium space-y-1">
@@ -273,12 +226,6 @@ export const MapView: React.FC<MapViewProps> = ({
           <div className="w-2.5 h-2.5 rounded-full bg-green-500"></div>
           <span>Найденные</span>
         </div>
-        {searchCoords && (
-          <div className="flex items-center gap-2">
-            <div className="w-2.5 h-2.5 rounded-full bg-indigo-600"></div>
-            <span>Ваша точка</span>
-          </div>
-        )}
       </div>
     </div>
   );

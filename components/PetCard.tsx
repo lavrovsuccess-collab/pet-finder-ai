@@ -121,9 +121,20 @@ export const PetCard: React.FC<PetCardProps> = ({ pet, matchInfo, onEdit, onDele
             )}
         </div>
         
-        <p className="text-xs font-bold text-slate-500 mb-3 uppercase tracking-wide truncate">
+        <p className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide truncate">
             {pet.breed} • {pet.color}
+            {(pet.hasCollar || pet.isChipped) && (
+              <span className="ml-1 text-slate-400">
+                {pet.hasCollar && '• Ошейник'}
+                {pet.isChipped && ' • Чип'}
+              </span>
+            )}
         </p>
+        {pet.specialMarks && (
+          <p className="text-xs text-slate-600 mb-2 line-clamp-1" title={pet.specialMarks}>
+            📌 {pet.specialMarks}
+          </p>
+        )}
         
         {/* Info Grid */}
         <div className="bg-slate-50 rounded-lg p-2.5 mb-3 space-y-1.5">

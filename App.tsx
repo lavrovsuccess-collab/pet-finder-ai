@@ -722,7 +722,26 @@ const PetDetailView: React.FC<{
                                     </p>
                                 </div>
                             </div>
+
+                            {(pet.hasCollar || pet.isChipped || (pet.type === 'found' && pet.keptByFinder !== undefined)) && (
+                            <div className="flex flex-wrap gap-2 mt-2">
+                                {pet.hasCollar && <span className="inline-flex items-center px-2 py-1 rounded-md bg-indigo-50 text-indigo-700 text-xs font-medium">Ошейник{pet.collarColor ? `: ${pet.collarColor}` : ''}</span>}
+                                {pet.isChipped && <span className="inline-flex items-center px-2 py-1 rounded-md bg-green-50 text-green-700 text-xs font-medium">Чипирован</span>}
+                                {pet.type === 'found' && pet.keptByFinder === false && <span className="inline-flex items-center px-2 py-1 rounded-md bg-amber-50 text-amber-700 text-xs font-medium">Сфотографировал и ушёл</span>}
+                                {pet.type === 'found' && pet.keptByFinder === true && <span className="inline-flex items-center px-2 py-1 rounded-md bg-emerald-50 text-emerald-700 text-xs font-medium">Оставил у себя</span>}
+                            </div>
+                            )}
                         </div>
+
+                        {pet.specialMarks && (
+                        <div className="mb-6">
+                            <h3 className="text-base md:text-lg font-bold text-slate-800 mb-2 flex items-center">
+                                <span>Особые приметы</span>
+                                <div className="ml-4 h-px bg-slate-200 flex-grow"></div>
+                            </h3>
+                            <p className="text-slate-700 leading-relaxed whitespace-pre-wrap text-sm md:text-base">{pet.specialMarks}</p>
+                        </div>
+                        )}
 
                         <div className="flex-grow">
                             <h3 className="text-base md:text-lg font-bold text-slate-800 mb-2 md:mb-3 flex items-center">
@@ -805,15 +824,93 @@ const MatchingView: React.FC<{ pet: PetReport }> = ({ pet }) => {
     );
 };
 
+const RADIUS_OPTIONS = [1, 3, 10, 30] as const;
+
+const AiSearchMapInline: React.FC<{
+  center: { lat: number; lng: number };
+  radiusKm: number;
+  matchedPets: PetReport[];
+  onPetClick: (pet: PetReport) => void;
+}> = ({ center, radiusKm, matchedPets, onPetClick }) => {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<any>(null);
+  const circleRef = useRef<any>(null);
+  const markersRef = useRef<any[]>([]);
+
+  useEffect(() => {
+    if (!mapRef.current || !(window as any).L || mapInstanceRef.current) return;
+    const L = (window as any).L;
+    const map = L.map(mapRef.current, { attributionControl: false, zoomControl: false });
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      subdomains: 'abcd', maxZoom: 19
+    }).addTo(map);
+    map.setView([center.lat, center.lng], 12);
+    mapInstanceRef.current = map;
+    return () => { map.remove(); mapInstanceRef.current = null; };
+  }, []);
+
+  useEffect(() => {
+    if (!mapInstanceRef.current || !(window as any).L) return;
+    const L = (window as any).L;
+    const map = mapInstanceRef.current;
+
+    if (circleRef.current) { map.removeLayer(circleRef.current); circleRef.current = null; }
+    const circle = L.circle([center.lat, center.lng], {
+      radius: radiusKm * 1000,
+      color: '#6366f1', fillColor: '#6366f1', fillOpacity: 0.1, weight: 2,
+    }).addTo(map);
+    circleRef.current = circle;
+
+    markersRef.current.forEach((m) => map.removeLayer(m));
+    markersRef.current = [];
+
+    const createIcon = (color: string) => L.divIcon({
+      className: 'ai-search-marker',
+      html: `<div style="background:${color};width:18px;height:18px;border-radius:50%;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3)"></div>`,
+      iconSize: [18, 18], iconAnchor: [9, 9],
+    });
+
+    const centerIcon = L.divIcon({
+      html: `<div style="background:#6366f1;width:22px;height:22px;border-radius:50%;border:3px solid white;box-shadow:0 2px 8px rgba(0,0,0,0.4)"></div>`,
+      iconSize: [22, 22], iconAnchor: [11, 11],
+    });
+    const centerMarker = L.marker([center.lat, center.lng], { icon: centerIcon });
+    centerMarker.addTo(map);
+    markersRef.current.push(centerMarker);
+
+    matchedPets.forEach((pet) => {
+      if (!pet.lat || !pet.lng) return;
+      const isLost = (pet.type || 'lost') === 'lost';
+      const marker = L.marker([pet.lat, pet.lng], { icon: createIcon(isLost ? '#EF4444' : '#22C55E') });
+      marker.on('click', () => onPetClick(pet));
+      marker.addTo(map);
+      markersRef.current.push(marker);
+    });
+
+    const group = L.featureGroup([circle, ...markersRef.current]);
+    map.fitBounds(group.getBounds().pad(0.3), { maxZoom: 14 });
+  }, [center, radiusKm, matchedPets, onPetClick]);
+
+  return (
+    <div className="w-full h-[280px] rounded-xl overflow-hidden border border-slate-200 shadow-sm">
+      <div ref={mapRef} className="w-full h-full" />
+    </div>
+  );
+};
+
 const ResultsView: React.FC<{ 
     pet: PetReport, 
     matches: MatchResult[], 
     candidates: PetReport[], 
     error?: string,
+    aiSearchRadius: number,
+    setAiSearchRadius: (r: number) => void,
+    onSearchAgain: () => void,
     onBack: () => void,
     onPetClick: (pet: PetReport) => void,
     onUserClick: (userId: string) => void
-}> = ({ pet, matches, candidates, error, onBack, onPetClick, onUserClick }) => {
+}> = ({ pet, matches, candidates, error, aiSearchRadius, setAiSearchRadius, onSearchAgain, onBack, onPetClick, onUserClick }) => {
     const matchedPets = useMemo(() => {
         return matches.map(match => {
             const petDetails = candidates.find(p => p.id === match.id);
@@ -844,6 +941,31 @@ const ResultsView: React.FC<{
                         </p>
                     )}
                 </div>
+                {!error && pet.lat != null && pet.lng != null && (
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-slate-600">Радиус:</span>
+                            <div className="flex bg-slate-100 p-0.5 rounded-lg">
+                                {RADIUS_OPTIONS.map((r) => (
+                                    <button
+                                        key={r}
+                                        onClick={() => setAiSearchRadius(r)}
+                                        className={`px-3 py-1.5 text-sm font-medium rounded-md transition-all ${aiSearchRadius === r ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'}`}
+                                    >
+                                        {r} км
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        <button
+                            onClick={onSearchAgain}
+                            className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition-colors inline-flex items-center gap-2"
+                        >
+                            <SearchIcon className="w-4 h-4" />
+                            Искать снова
+                        </button>
+                    </div>
+                )}
             </div>
 
             {error ? (
@@ -896,6 +1018,21 @@ const ResultsView: React.FC<{
                                 Найденные совпадения <span className="text-slate-400 font-normal ml-1 text-lg">({matches.length})</span>
                              </h3>
                         </div>
+
+                        {pet.lat != null && pet.lng != null && (
+                            <div className="mb-6">
+                                <div className="flex items-center gap-2 mb-2 text-sm font-medium text-slate-600">
+                                    <MapIcon className="w-4 h-4" />
+                                    Зона поиска (радиус {aiSearchRadius} км)
+                                </div>
+                                <AiSearchMapInline
+                                    center={{ lat: pet.lat, lng: pet.lng }}
+                                    radiusKm={aiSearchRadius}
+                                    matchedPets={matchedPets}
+                                    onPetClick={onPetClick}
+                                />
+                            </div>
+                        )}
 
                         {matchedPets.length > 0 ? (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1394,7 +1531,8 @@ export default function App() {
   const [viewingProfileId, setViewingProfileId] = useState<string | null>(null);
   
   const [matches, setMatches] = useState<MatchResult[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [aiSearchRadius, setAiSearchRadius] = useState<number>(10);
+  const [pendingAutoSearchUserId, setPendingAutoSearchUserId] = useState<string | null>(null);
   const [locationFilter, setLocationFilter] = useState('');
   
   // New State for Geolocation
@@ -1409,6 +1547,8 @@ export default function App() {
   const [speciesFilter, setSpeciesFilter] = useState<string>('all');
   const [breedFilter, setBreedFilter] = useState<string>('all');
   const [dateFilter, setDateFilter] = useState<string>('all');
+  const [collarFilter, setCollarFilter] = useState<'all' | 'yes' | 'no'>('all');
+  const [keptByFinderFilter, setKeptByFinderFilter] = useState<'all' | 'yes' | 'no'>('all');
 
   const petPendingDelete = useMemo(
     () => (deleteConfirmPetId ? reports.find(p => p.id === deleteConfirmPetId) : null),
@@ -1474,9 +1614,16 @@ export default function App() {
           breed: data.breed || 'Не указана',
           color: data.color || 'Не указан',
           lastSeenLocation: data.lastSeenLocation || 'Не указано',
+          city: data.city,
+          region: data.region,
           lat: data.lat,
           lng: data.lng,
           description: data.description || '',
+          specialMarks: data.specialMarks,
+          hasCollar: data.hasCollar,
+          collarColor: data.collarColor,
+          isChipped: data.isChipped,
+          keptByFinder: data.keptByFinder,
           contactInfo: data.contactInfo || '',
           photos: data.photos || (data.mainPhoto ? [data.mainPhoto] : []),
           mainPhoto: data.mainPhoto || data.photos?.[0] || null,
@@ -1580,6 +1727,11 @@ export default function App() {
         setView('login');
         return;
     }
+    const currentUserId = localStorage.getItem('petFinderUserId');
+    if (!currentUserId || petToMatch.userId !== currentUserId) {
+        toast('ИИ-поиск доступен только для ваших объявлений', { icon: '🔒' });
+        return;
+    }
     
     setError(undefined); // Reset previous errors
     setView('matching');
@@ -1601,22 +1753,69 @@ export default function App() {
         }
 
         const isSearchingFound = petToMatch.type === 'found';
-        
-        // Filter out 'resolved' pets from the search candidates
-        // If searching for a lost pet (isSearchingFound = false), look in foundPets that are ACTIVE.
-        // If searching for a found pet (isSearchingFound = true), look in lostPets that are ACTIVE.
         const sourceCandidates = isSearchingFound ? lostPets : foundPets;
-        const candidates = sourceCandidates.filter(p => p.status !== 'resolved');
+        let candidates = sourceCandidates.filter(p => p.status !== 'resolved');
 
-        if (candidates.length > 0) {
-            const matchResults = await findPetMatches(petWithBase64, candidates);
+        const refDate = petToMatch.date ? new Date(petToMatch.date).getTime() : 0;
+        const now = Date.now();
+        const threeMonthsAgo = now - 90 * 24 * 60 * 60 * 1000;
+
+        candidates = candidates.filter(c => {
+            if (c.species !== petToMatch.species) return false;
+            const cDate = c.date ? new Date(c.date).getTime() : 0;
+            if (isSearchingFound) {
+                if (cDate < threeMonthsAgo) return false;
+                if (refDate && cDate > refDate) return false;
+            } else {
+                if (refDate && cDate < refDate) return false;
+            }
+            return true;
+        });
+
+        const centerLat = petToMatch.lat;
+        const centerLng = petToMatch.lng;
+        const hasCoords = centerLat != null && centerLng != null;
+
+        if (hasCoords) {
+            candidates = candidates.filter(c => {
+                if (!c.lat || !c.lng) return false;
+                return getDistanceFromLatLonInKm(centerLat, centerLng, c.lat, c.lng) <= aiSearchRadius;
+            });
+        }
+
+        const scoreCandidate = (c: PetReport): number => {
+            let s = 0;
+            const cColor = (c.color || '').toLowerCase();
+            const tColor = (petToMatch.color || '').toLowerCase();
+            if (cColor && tColor && (cColor.includes(tColor) || tColor.includes(cColor))) s += 3;
+            const cMarks = (c.specialMarks || '').toLowerCase();
+            const tMarks = (petToMatch.specialMarks || '').toLowerCase();
+            const marksWords = [...new Set([...cMarks.split(/\s+/), ...tMarks.split(/\s+/)])].filter(w => w.length > 2);
+            if (marksWords.some(w => cMarks.includes(w) && tMarks.includes(w))) s += 3;
+            if (c.hasCollar === petToMatch.hasCollar) s += 2;
+            if (hasCoords && c.lat && c.lng) {
+                const d = getDistanceFromLatLonInKm(centerLat!, centerLng!, c.lat, c.lng);
+                if (d < 1) s += 3; else if (d < 5) s += 2; else if (d < 10) s += 1;
+            }
+            const cD = c.date ? new Date(c.date).getTime() : 0;
+            if (refDate && Math.abs(cD - refDate) < 7 * 24 * 60 * 60 * 1000) s += 1;
+            return s;
+        };
+
+        candidates = [...candidates].sort((a, b) => scoreCandidate(b) - scoreCandidate(a));
+
+        const candidatesWithPhotos = candidates.filter(c => c.photos?.[0] && c.photos[0].length > 100);
+        const topCandidates = candidatesWithPhotos.slice(0, 8);
+
+        if (topCandidates.length > 0) {
+            const matchResults = await findPetMatches(petWithBase64, topCandidates);
             // Sort results by confidence descending (highest match first)
             matchResults.sort((a, b) => b.confidence - a.confidence);
             
             setMatches(matchResults);
             
             const newNotifications = matchResults.map(match => {
-                const matchedCandidate = candidates.find(p => p.id === match.id);
+                const matchedCandidate = topCandidates.find(p => p.id === match.id);
                 if (matchedCandidate && matchedCandidate.userId) {
                     const notificationLostPet = isSearchingFound ? matchedCandidate : petToMatch;
                     const notificationFoundPet = isSearchingFound ? petToMatch : matchedCandidate;
@@ -1643,6 +1842,9 @@ export default function App() {
             }
         } else {
             setMatches([]);
+            if (candidates.length === 0 && sourceCandidates.filter(p => p.status !== 'resolved').length > 0) {
+                toast('В радиусе поиска нет подходящих объявлений. Попробуйте позже.', { icon: '🔍' });
+            }
         }
         setView('results');
     } catch (e: any) {
@@ -1650,7 +1852,7 @@ export default function App() {
         setError(e.message || "Произошла неизвестная ошибка при поиске.");
         setView('results'); // Show results view but with error state
     }
-  }, [currentUser, lostPets, foundPets]);
+  }, [currentUser, lostPets, foundPets, aiSearchRadius]);
 
   const handleReportSubmit = useCallback((reportData: Omit<PetReport, 'id' | 'type' | 'userId' | 'status' | 'date'>, formType: 'lost' | 'found' | 'edit') => {
     console.log('🏠 [App] handleReportSubmit вызван, formType:', formType);
@@ -1670,7 +1872,12 @@ export default function App() {
       console.log('✅ [App] Переходим на home (lost)');
       setView('home');
     } else if (formType === 'found') {
-      console.log('✅ [App] Переходим на home (found)');
+      console.log('✅ [App] Устанавливаем флаг авто-поиска для found');
+      const userId = localStorage.getItem('petFinderUserId');
+      if (userId) {
+        setPendingAutoSearchUserId(userId);
+      }
+      toast('Запускаем ИИ-поиск совпадений...', { icon: '🔍', duration: 4000 });
       setView('home');
     } else if (formType === 'edit' && editingPet) {
         console.log('✅ [App] Переходим на account (edit)');
@@ -1678,7 +1885,27 @@ export default function App() {
         setView('account');
     }
   }, [currentUser, editingPet]);
-  
+
+  // Автопоиск: когда reports обновятся из Firebase и есть pending флаг
+  useEffect(() => {
+    if (!pendingAutoSearchUserId) return;
+    // Находим самое свежее found-объявление этого пользователя
+    const myFoundPets = foundPets
+      .filter(p => p.userId === pendingAutoSearchUserId && p.status === 'active')
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    
+    if (myFoundPets.length > 0) {
+      const newestFound = myFoundPets[0];
+      // Проверяем что оно свежее (< 60 секунд)
+      const age = Date.now() - new Date(newestFound.date).getTime();
+      if (age < 60000) {
+        console.log('🤖 [AutoSearch] Запускаем авто-поиск для:', newestFound.id);
+        setPendingAutoSearchUserId(null);
+        handleStartAiSearch(newestFound);
+      }
+    }
+  }, [foundPets, pendingAutoSearchUserId, handleStartAiSearch]);
+
   const handleDelete = async (petId: string) => {
     // Проверка прав доступа: только владелец может удалить
     const pet = reports.find(p => p.id === petId);
@@ -1755,7 +1982,8 @@ export default function App() {
             console.error(err);
             toast.error('Не удалось определить местоположение. Проверьте разрешения браузера.');
             setIsLocatingUser(false);
-        }
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   };
 
@@ -1806,7 +2034,19 @@ export default function App() {
       if (dateFilter === 'month' && (now - petDate) > (30 * oneDay)) return false;
     }
 
-    // 4. Location Filter (Enhanced with Radius)
+    // 4. Collar Filter
+    if (collarFilter !== 'all') {
+      if (collarFilter === 'yes' && !pet.hasCollar) return false;
+      if (collarFilter === 'no' && pet.hasCollar) return false;
+    }
+
+    // 5. KeptByFinder Filter (only for found)
+    if (keptByFinderFilter !== 'all' && pet.type === 'found') {
+      if (keptByFinderFilter === 'yes' && pet.keptByFinder !== true) return false;
+      if (keptByFinderFilter === 'no' && pet.keptByFinder !== false) return false;
+    }
+
+    // 6. Location Filter (Enhanced with Radius)
     if (searchCoords) {
       if (pet.lat && pet.lng) {
         const distance = getDistanceFromLatLonInKm(searchCoords.lat, searchCoords.lng, pet.lat, pet.lng);
@@ -1815,25 +2055,43 @@ export default function App() {
         return false;
       }
     } else if (locationFilter && locationFilter !== '📍 Мое местоположение') {
-      if (!pet.lastSeenLocation.toLowerCase().includes(locationFilter.toLowerCase())) {
-        return false;
-      }
+      const q = locationFilter.toLowerCase();
+      const matchLocation =
+        (pet.city && pet.city.toLowerCase().includes(q)) ||
+        (pet.region && pet.region.toLowerCase().includes(q)) ||
+        pet.lastSeenLocation.toLowerCase().includes(q);
+      if (!matchLocation) return false;
     }
 
     return true;
-  }, [speciesFilter, breedFilter, dateFilter, searchCoords, searchRadius, locationFilter]);
+  }, [speciesFilter, breedFilter, dateFilter, collarFilter, keptByFinderFilter, searchCoords, searchRadius, locationFilter]);
 
   // Отфильтрованные списки (общие для карты и главной)
   const filteredLostPets = useMemo(() => lostPets.filter(filterPet), [lostPets, filterPet]);
   const filteredFoundPets = useMemo(() => foundPets.filter(filterPet), [foundPets, filterPet]);
 
-  // Отфильтрованные reports для карты (тип + общие фильтры)
+  // Фильтр для карты — без радиуса и локации (только тип, вид, порода, дата)
+  const filterPetForMap = useCallback((pet: PetReport) => {
+    if (speciesFilter !== 'all' && pet.species !== speciesFilter) return false;
+    if (breedFilter !== 'all' && pet.breed !== breedFilter) return false;
+    if (dateFilter !== 'all') {
+      const petDate = new Date(pet.date).getTime();
+      const now = Date.now();
+      const oneDay = 24 * 60 * 60 * 1000;
+      if (dateFilter === 'today' && (now - petDate) > oneDay) return false;
+      if (dateFilter === '3days' && (now - petDate) > (3 * oneDay)) return false;
+      if (dateFilter === 'week' && (now - petDate) > (7 * oneDay)) return false;
+      if (dateFilter === 'month' && (now - petDate) > (30 * oneDay)) return false;
+    }
+    return true;
+  }, [speciesFilter, breedFilter, dateFilter]);
+
   const filteredReportsForMap = useMemo(() => {
-    let filtered = reports.filter(p => p.status !== 'resolved').filter(filterPet);
+    let filtered = reports.filter(p => p.status !== 'resolved').filter(filterPetForMap);
     if (filterType === 'lost') filtered = filtered.filter(p => p.type === 'lost');
     if (filterType === 'found') filtered = filtered.filter(p => p.type === 'found');
     return filtered;
-  }, [reports, filterPet, filterType]);
+  }, [reports, filterPetForMap, filterType]);
 
   const renderContent = () => {
     switch (view) {
@@ -1876,7 +2134,20 @@ export default function App() {
         return activeSearchPet && <MatchingView pet={activeSearchPet} />;
       case 'results':
          const candidates = activeSearchPet?.type === 'found' ? lostPets : foundPets;
-         return activeSearchPet && <ResultsView pet={activeSearchPet} matches={matches} candidates={candidates} error={error} onBack={() => setView('home')} onPetClick={handlePetClick} onUserClick={handleUserClick} />;
+         return activeSearchPet && (
+           <ResultsView
+             pet={activeSearchPet}
+             matches={matches}
+             candidates={candidates}
+             error={error}
+             aiSearchRadius={aiSearchRadius}
+             setAiSearchRadius={setAiSearchRadius}
+             onSearchAgain={() => handleStartAiSearch(activeSearchPet)}
+             onBack={() => setView('account')}
+             onPetClick={handlePetClick}
+             onUserClick={handleUserClick}
+           />
+         );
       case 'map':
           return <MapView 
             reports={filteredReportsForMap} 
@@ -1887,10 +2158,7 @@ export default function App() {
             setSpeciesFilter={setSpeciesFilter}
             dateFilter={dateFilter}
             setDateFilter={setDateFilter}
-            searchCoords={searchCoords}
-            setSearchCoords={setSearchCoords}
-            searchRadius={searchRadius}
-            setSearchRadius={setSearchRadius}
+            userLocation={searchCoords}
             isLocatingUser={isLocatingUser}
             onUseMyLocation={handleUseMyLocation}
           />;
@@ -1900,24 +2168,8 @@ export default function App() {
           return <TermsView onBack={() => setView('home')} />;
       case 'home':
       default:
-        // Дополнительная фильтрация по текстовому поиску (только для списка)
-        const searchTerms = searchTerm.toLowerCase().split(/\s+/).filter(t => t.length > 0);
-        const applyTextSearch = (pets: PetReport[]) => {
-            if (searchTerms.length === 0) return pets;
-            return pets.filter(pet => {
-                const petDataString = [
-                    pet.petName || '',
-                    pet.breed,
-                    pet.color,
-                    pet.lastSeenLocation,
-                    pet.description
-                ].join(' ').toLowerCase();
-                return searchTerms.every(term => petDataString.includes(term));
-            });
-        };
-
-        const homeFilteredLost = applyTextSearch(filteredLostPets);
-        const homeFilteredFound = applyTextSearch(filteredFoundPets);
+        const homeFilteredLost = filteredLostPets;
+        const homeFilteredFound = filteredFoundPets;
 
         const renderEmptyState = (type: 'lost' | 'found') => {
             const emptyStateTitle = type === 'lost' ? 'Нет потерянных' : 'Нет находок';
@@ -1925,7 +2177,7 @@ export default function App() {
 
             return (
                 <div className="text-center py-12 md:py-16 px-4 md:px-6 bg-white rounded-xl shadow-lg">
-                {searchTerm || locationFilter || speciesFilter !== 'all' || breedFilter !== 'all' || dateFilter !== 'all' ? (
+                {locationFilter || speciesFilter !== 'all' || breedFilter !== 'all' || dateFilter !== 'all' || collarFilter !== 'all' || keptByFinderFilter !== 'all' || searchCoords ? (
                     <><SearchIcon className="w-12 h-12 md:w-16 md:h-16 mx-auto text-slate-400 mb-4" /><h3 className="text-lg md:text-2xl font-bold text-slate-800">Ничего не найдено</h3><p className="text-sm md:text-base text-slate-600 mt-2">Попробуйте изменить параметры фильтрации.</p></>
                 ) : (
                     <><PawIcon className="w-12 h-12 md:w-16 md:h-16 mx-auto text-slate-400 mb-4" /><h3 className="text-lg md:text-2xl font-bold text-slate-800">{emptyStateTitle}</h3><p className="text-sm md:text-base text-slate-600 mt-2">{emptyStateSubtitle}</p></>
@@ -1949,11 +2201,6 @@ export default function App() {
               </div>
               <div className="container mx-auto px-4 md:px-6 py-8 md:py-12">
                 <div className="flex flex-col md:flex-row justify-center items-center gap-3 md:gap-4 mb-8 md:mb-10 flex-wrap">
-                    <div className="relative w-full max-w-md">
-                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><SearchIcon className="h-4 w-4 md:h-5 md:w-5 text-slate-400" /></div>
-                        <input type="text" placeholder="Искать по описанию..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="block w-full pl-9 md:pl-10 pr-3 py-2 text-sm border border-slate-300 rounded-md leading-5 bg-white placeholder-slate-500 focus:outline-none focus:placeholder-slate-400 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500"/>
-                    </div>
-
                     <div className="flex gap-2 flex-wrap justify-center w-full md:w-auto">
                         <div className="flex bg-slate-100 p-1 rounded-lg w-full md:w-auto justify-between md:justify-start">
                             <button 
@@ -2057,6 +2304,28 @@ export default function App() {
                            <option value="week">За неделю</option>
                            <option value="month">За месяц</option>
                         </select>
+
+                        <select
+                            value={collarFilter}
+                            onChange={(e) => setCollarFilter(e.target.value as 'all' | 'yes' | 'no')}
+                            className="w-full md:w-40 pl-2 md:pl-3 pr-8 md:pr-10 py-2 text-xs md:text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                        >
+                            <option value="all">Ошейник: любой</option>
+                            <option value="yes">С ошейником</option>
+                            <option value="no">Без ошейника</option>
+                        </select>
+
+                        {(filterType === 'all' || filterType === 'found') && (
+                            <select
+                                value={keptByFinderFilter}
+                                onChange={(e) => setKeptByFinderFilter(e.target.value as 'all' | 'yes' | 'no')}
+                                className="w-full md:w-48 pl-2 md:pl-3 pr-8 md:pr-10 py-2 text-xs md:text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+                            >
+                                <option value="all">Нашедший: все</option>
+                                <option value="yes">Оставил у себя</option>
+                                <option value="no">Сфотографировал</option>
+                            </select>
+                        )}
                     </div>
                 </div>
 
@@ -2072,7 +2341,6 @@ export default function App() {
                             <PetCard
                                 key={pet.id}
                                 pet={pet}
-                                onFindMatches={pet.status !== 'resolved' ? () => handleStartAiSearch(pet) : undefined}
                                 onClick={() => handlePetClick(pet)}
                                 onUserClick={handleUserClick}
                             />
@@ -2096,7 +2364,6 @@ export default function App() {
                             <PetCard
                                 key={pet.id}
                                 pet={pet}
-                                onFindMatches={pet.status !== 'resolved' ? () => handleStartAiSearch(pet) : undefined}
                                 onClick={() => handlePetClick(pet)}
                                 onUserClick={handleUserClick}
                             />
