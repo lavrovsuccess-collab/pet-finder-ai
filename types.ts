@@ -32,10 +32,16 @@ export interface MatchResult {
 
 export interface Notification {
   id: string;
-  userId: string;
-  lostPet: PetReport;
-  foundPet: PetReport;
-  matchResult: MatchResult;
+  userId: string;          // Кому адресовано уведомление (хозяин потерянного)
+  // Компактные данные для отображения (без вложенных PetReport)
+  lostPetId: string;
+  lostPetName: string;
+  lostPetPhoto: string;    // URL или base64 первого фото
+  foundPetId: string;
+  foundPetLocation: string;
+  foundPetPhoto: string;
+  confidence: number;      // Процент совпадения
+  reasoning: string;       // Обоснование ИИ
   timestamp: number;
   read: boolean;
 }

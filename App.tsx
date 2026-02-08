@@ -9,7 +9,7 @@ import { MapView } from './components/MapView';
 import { PawIcon, SearchIcon, PlusCircleIcon, LogoIcon, UserCircleIcon, BellIcon, GoogleIcon, MapPinIcon, PhoneIcon, PencilIcon, CalendarIcon, ChevronDownIcon, CrosshairIcon, MapIcon, CameraIcon } from './components/icons';
 import { auth, db } from './src/firebase';
 import { signInWithPopup, GoogleAuthProvider, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged } from 'firebase/auth';
-import { doc, setDoc, getDoc, collection, getDocs, onSnapshot, deleteDoc, updateDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, collection, getDocs, onSnapshot, deleteDoc, updateDoc, addDoc, query, where } from 'firebase/firestore';
 import toast, { Toaster } from 'react-hot-toast';
 
 type View = 'home' | 'reportLost' | 'reportFound' | 'matching' | 'results' | 'account' | 'login' | 'editReport' | 'lostPetDetail' | 'petDetail' | 'publicProfile' | 'map' | 'privacy' | 'terms';
@@ -291,7 +291,7 @@ const LoginModal: React.FC<{ isOpen: boolean; onClose: () => void; onLoginSucces
   );
 };
 
-const Header = ({ currentUser, onViewChange, currentView, onLogout, onLogin }: { currentUser: string | null, onViewChange: (view: View) => void, currentView: View, onLogout: () => void, onLogin: () => void }) => (
+const Header = ({ currentUser, onViewChange, currentView, onLogout, onLogin, unreadCount }: { currentUser: string | null, onViewChange: (view: View) => void, currentView: View, onLogout: () => void, onLogin: () => void, unreadCount: number }) => (
     <header className="bg-white shadow-md sticky top-0 z-50">
         <nav className="container mx-auto px-4 md:px-6 py-2.5 md:py-3 flex justify-between items-center">
             <div className="flex items-center cursor-pointer" onClick={() => onViewChange('home')}>
@@ -323,6 +323,14 @@ const Header = ({ currentUser, onViewChange, currentView, onLogout, onLogin }: {
 
                  {currentUser ? (
                      <>
+                        <button onClick={() => onViewChange('account')} className="relative p-2 text-slate-600 hover:text-indigo-600 transition-colors">
+                            <BellIcon className="w-5 h-5 md:w-6 md:h-6" />
+                            {unreadCount > 0 && (
+                              <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1 animate-pulse">
+                                {unreadCount > 9 ? '9+' : unreadCount}
+                              </span>
+                            )}
+                        </button>
                         <button onClick={() => onViewChange('account')} className="flex items-center gap-1 md:gap-2 text-xs md:text-sm font-medium text-slate-700 hover:text-indigo-600 transition-colors">
                             <UserCircleIcon className="w-5 h-5 md:w-5 md:h-5"/>
                             <span className="hidden sm:inline">{currentUser}</span>
@@ -1338,22 +1346,23 @@ const AccountView: React.FC<{
                     {myNotifications.length > 0 ? (
                         <div className="space-y-3 md:space-y-4">
                             {myNotifications.map(n => {
-                                const isMyLostPet = n.lostPet.userId === currentUserId;
-                                const notificationText = isMyLostPet 
-                                    ? `Найдено возможное совпадение для вашего питомца "${n.lostPet.petName || 'Без имени'}"!`
-                                    : `Ваше объявление о находке может совпадать с потерянным питомцем "${n.lostPet.petName || 'Без имени'}".`;
-                                
-                                const secondaryText = isMyLostPet
-                                    ? `Найденный питомец (${n.foundPet.breed}, ${n.foundPet.color}) был замечен в "${n.foundPet.lastSeenLocation}".`
-                                    : `Владелец потерянного питомца (${n.lostPet.breed}, ${n.lostPet.color}) ищет его.`;
+                                const notificationText = `Возможно, вашего питомца "${n.lostPetName}" нашли!`;
+                                const secondaryText = n.foundPetLocation 
+                                    ? `Найденный питомец был замечен в "${n.foundPetLocation}".`
+                                    : 'Посмотрите объявление для подробностей.';
 
-                                const imageSrc = isMyLostPet 
-                                    ? (n.foundPet.photos?.[0] || '') 
-                                    : (n.lostPet.photos?.[0] || '');
+                                // Находим объявление найденного питомца для перехода
+                                const foundPetReport = [...allFoundPets, ...allLostPets].find(p => p.id === n.foundPetId);
 
                                 return (
-                                    <div key={n.id} className={`p-3 md:p-4 rounded-lg flex items-start gap-3 md:gap-4 transition-colors ${n.read ? 'bg-slate-100' : 'bg-green-50 border border-green-200 shadow-sm'}`}>
-                                        <img src={imageSrc} alt="Matched pet" className="w-12 h-12 md:w-16 md:h-16 rounded-md object-cover bg-slate-200 flex-shrink-0"/>
+                                    <div 
+                                        key={n.id} 
+                                        className={`p-3 md:p-4 rounded-lg flex items-start gap-3 md:gap-4 transition-colors cursor-pointer ${n.read ? 'bg-slate-100 hover:bg-slate-200' : 'bg-green-50 border border-green-200 shadow-sm hover:bg-green-100'}`}
+                                        onClick={() => { if (foundPetReport) onPetClick(foundPetReport); }}
+                                    >
+                                        <div className="w-12 h-12 md:w-16 md:h-16 rounded-md bg-indigo-100 flex items-center justify-center flex-shrink-0 text-xl md:text-2xl">
+                                            {n.confidence >= 80 ? '🎯' : '🔍'}
+                                        </div>
                                         <div className="flex-grow min-w-0">
                                             <p className="font-semibold text-slate-800 text-sm md:text-base leading-snug">
                                                 {notificationText}
@@ -1362,15 +1371,19 @@ const AccountView: React.FC<{
                                                 {secondaryText}
                                             </p>
                                             <p className="text-xs text-blue-700 mt-1 italic">
-                                                Уверенность ИИ: <strong>{Math.round(n.matchResult.confidence)}%</strong>.
+                                                Уверенность ИИ: <strong>{Math.round(n.confidence)}%</strong>
                                             </p>
+                                            {n.reasoning && (
+                                                <p className="text-[10px] md:text-xs text-slate-500 mt-1 line-clamp-2">{n.reasoning}</p>
+                                            )}
+                                            <p className="text-[10px] text-slate-400 mt-1">{new Date(n.timestamp).toLocaleString('ru-RU')}</p>
                                         </div>
                                         {!n.read && (
                                             <button 
                                                 onClick={(e) => { e.stopPropagation(); onMarkAsRead(n.id); }} 
                                                 className="px-2 py-1 md:px-3 md:py-1 text-[10px] md:text-xs font-medium text-indigo-600 bg-white border border-indigo-200 rounded-md hover:bg-indigo-50 hover:text-indigo-700 transition-colors self-start whitespace-nowrap ml-1 shadow-sm"
                                             >
-                                                Отметить
+                                                Прочитано
                                             </button>
                                         )}
                                     </div>
@@ -1520,10 +1533,7 @@ export default function App() {
       return saved ? JSON.parse(saved) : {};
   });
 
-  const [notifications, setNotifications] = useState<Notification[]>(() => {
-    const saved = localStorage.getItem('notifications');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [notifications, setNotifications] = useState<Notification[]>([]);
   const [activeSearchPet, setActiveSearchPet] = useState<PetReport | null>(null);
   const [currentLostPet, setCurrentLostPet] = useState<PetReport | null>(null);
   const [editingPet, setEditingPet] = useState<PetReport | null>(null);
@@ -1560,14 +1570,27 @@ export default function App() {
     setBreedFilter('all');
   }, [speciesFilter]);
 
-  // localStorage больше не нужен для reports - данные в Firebase
-  useEffect(() => { 
-    try {
-      localStorage.setItem('notifications', JSON.stringify(notifications)); 
-    } catch (error) {
-      console.error("Failed to save notifications to localStorage:", error);
+  // Подписка на уведомления из Firestore (query по userId)
+  useEffect(() => {
+    const userId = localStorage.getItem('petFinderUserId');
+    if (!userId) {
+      setNotifications([]);
+      return;
     }
-  }, [notifications]);
+    const notifQuery = query(
+      collection(db, 'notifications'),
+      where('userId', '==', userId)
+    );
+    const unsubscribe = onSnapshot(notifQuery, (snapshot) => {
+      const allNotifs = snapshot.docs
+        .map(d => ({ id: d.id, ...d.data() } as Notification))
+        .sort((a, b) => b.timestamp - a.timestamp);
+      setNotifications(allNotifs);
+    }, (error) => {
+      console.error('Error listening to notifications:', error);
+    });
+    return () => unsubscribe();
+  }, [currentUser]);
   
   useEffect(() => {
       try {
@@ -1814,31 +1837,34 @@ export default function App() {
             
             setMatches(matchResults);
             
-            const newNotifications = matchResults.map(match => {
+            // Сохраняем уведомления в Firestore (только >= 60%)
+            const NOTIFICATION_THRESHOLD = 60;
+            const highConfidenceMatches = matchResults.filter(m => m.confidence >= NOTIFICATION_THRESHOLD);
+            
+            for (const match of highConfidenceMatches) {
                 const matchedCandidate = topCandidates.find(p => p.id === match.id);
                 if (matchedCandidate && matchedCandidate.userId) {
-                    const notificationLostPet = isSearchingFound ? matchedCandidate : petToMatch;
-                    const notificationFoundPet = isSearchingFound ? petToMatch : matchedCandidate;
-
-                    return {
-                        id: `notif-${Date.now()}-${Math.random()}`,
-                        userId: matchedCandidate.userId,
-                        lostPet: notificationLostPet,
-                        foundPet: notificationFoundPet,
-                        matchResult: match,
-                        timestamp: Date.now(),
-                        read: false,
-                    } as Notification;
+                    const lostPet = isSearchingFound ? matchedCandidate : petToMatch;
+                    const foundPet = isSearchingFound ? petToMatch : matchedCandidate;
+                    
+                    try {
+                        await addDoc(collection(db, 'notifications'), {
+                            userId: lostPet.userId,
+                            lostPetId: lostPet.id,
+                            lostPetName: lostPet.petName || 'Без клички',
+                            lostPetPhoto: '',
+                            foundPetId: foundPet.id,
+                            foundPetLocation: foundPet.lastSeenLocation || '',
+                            foundPetPhoto: '',
+                            confidence: match.confidence,
+                            reasoning: (match.reasoning || '').substring(0, 500),
+                            timestamp: Date.now(),
+                            read: false,
+                        });
+                    } catch (err) {
+                        console.error('Failed to save notification to Firestore:', err);
+                    }
                 }
-                return null;
-            }).filter((n): n is Notification => n !== null);
-
-            if (newNotifications.length > 0) {
-                setNotifications(prev => {
-                    const existingIds = new Set(prev.map(p => p.id));
-                    const uniqueNew = newNotifications.filter(n => !existingIds.has(n.id));
-                    return [...uniqueNew, ...prev];
-                });
             }
         } else {
             setMatches([]);
@@ -1959,8 +1985,13 @@ export default function App() {
     setView('editReport');
   };
 
-  const handleMarkAsRead = (notificationId: string) => {
-    setNotifications(prev => prev.map(n => n.id === notificationId ? {...n, read: true} : n));
+  const handleMarkAsRead = async (notificationId: string) => {
+    try {
+      const docRef = doc(db, 'notifications', notificationId);
+      await updateDoc(docRef, { read: true });
+    } catch (err) {
+      console.error('Failed to mark notification as read:', err);
+    }
   };
 
   const handleUseMyLocation = () => {
@@ -2382,7 +2413,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <Header currentUser={currentUser} onViewChange={setView} currentView={view} onLogout={handleLogout} onLogin={() => setIsLoginModalOpen(true)} />
+      <Header currentUser={currentUser} onViewChange={setView} currentView={view} onLogout={handleLogout} onLogin={() => setIsLoginModalOpen(true)} unreadCount={notifications.filter(n => !n.read).length} />
       <LoginModal 
         isOpen={isLoginModalOpen} 
         onClose={() => setIsLoginModalOpen(false)} 

@@ -18,6 +18,26 @@ service cloud.firestore {
     }
     
     // ==========================================
+    // Коллекция notifications (уведомления)
+    // ==========================================
+    match /notifications/{notifId} {
+      // Чтение только своих уведомлений
+      allow read: if request.auth != null && 
+        resource.data.userId == request.auth.uid;
+      
+      // Создание любым авторизованным пользователем
+      allow create: if request.auth != null;
+      
+      // Обновление только владельцу (mark as read)
+      allow update: if request.auth != null && 
+        resource.data.userId == request.auth.uid;
+      
+      // Удаление только владельцу
+      allow delete: if request.auth != null && 
+        resource.data.userId == request.auth.uid;
+    }
+    
+    // ==========================================
     // Коллекция users (профили пользователей)
     // ==========================================
     match /users/{userId} {
