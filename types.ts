@@ -22,6 +22,7 @@ export interface PetReport {
   contactInfo: string;
   photos: string[]; // base64 encoded images (Array)
   date: string; // Дата публикации (ISO string)
+  lostDate?: string; // Дата потери (только для type: 'lost', ISO string)
 }
 
 export interface MatchResult {

@@ -36,6 +36,7 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
   const [collarColor, setCollarColor] = useState('');
   const [isChipped, setIsChipped] = useState(false);
   const [keptByFinder, setKeptByFinder] = useState(true);
+  const [lostDate, setLostDate] = useState(new Date().toISOString().split('T')[0]);
   const [contactInfo, setContactInfo] = useState('');
   
   const [photos, setPhotos] = useState<string[]>([]);
@@ -65,6 +66,7 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
       setCollarColor(initialData.collarColor ?? '');
       setIsChipped(initialData.isChipped ?? false);
       setKeptByFinder(initialData.keptByFinder ?? true);
+      if (initialData.lostDate) setLostDate(initialData.lostDate.split('T')[0]);
       setContactInfo(initialData.contactInfo);
       setPhotos(initialData.photos || []);
       if (initialData.lat && initialData.lng) {
@@ -378,6 +380,7 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
     if (specialMarks) reportData.specialMarks = specialMarks;
     if (hasCollar && collarColor) reportData.collarColor = collarColor;
     if (formType === 'found') reportData.keptByFinder = keptByFinder;
+    if (formType === 'lost' && lostDate) reportData.lostDate = new Date(lostDate).toISOString();
 
     try {
       console.log('📤 [ReportForm] currentUserId:', currentUserId);
@@ -584,6 +587,21 @@ export const ReportForm: React.FC<ReportFormProps> = ({ formType, onSubmit, onCa
             </label>
           )}
         </div>
+
+        {formType === 'lost' && (
+          <div>
+            <label htmlFor="lostDate" className="block text-sm font-medium text-slate-700">Когда потеряли? *</label>
+            <input
+              type="date"
+              id="lostDate"
+              value={lostDate}
+              max={new Date().toISOString().split('T')[0]}
+              onChange={(e) => setLostDate(e.target.value)}
+              className="mt-1 block w-full sm:w-64 px-4 py-2 bg-slate-50 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+            />
+            <p className="mt-1 text-xs text-slate-500">Укажите дату, когда питомец пропал. Это поможет ИИ-поиску точнее находить совпадения.</p>
+          </div>
+        )}
 
         <div>
           <label htmlFor="lastSeenLocation" className="block text-sm font-medium text-slate-700">{locationLabel} *</label>

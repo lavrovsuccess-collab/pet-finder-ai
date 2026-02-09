@@ -907,6 +907,91 @@ const AiSearchMapInline: React.FC<{
   );
 };
 
+// Утилита: извлечение номера телефона из contactInfo и генерация ссылок
+const parsePhone = (contactInfo: string): string | null => {
+    const cleaned = contactInfo.replace(/[\s\-\(\)]/g, '');
+    const match = cleaned.match(/(\+?\d{10,15})/);
+    if (match) {
+        let phone = match[1];
+        // Нормализация: 89... → +79...
+        if (phone.startsWith('8') && phone.length === 11) {
+            phone = '+7' + phone.slice(1);
+        }
+        if (!phone.startsWith('+')) {
+            phone = '+' + phone;
+        }
+        return phone;
+    }
+    return null;
+};
+
+const parseEmail = (contactInfo: string): string | null => {
+    const match = contactInfo.match(/[\w.-]+@[\w.-]+\.\w+/);
+    return match ? match[0] : null;
+};
+
+// Компонент кнопок быстрой связи
+const QuickContactButtons: React.FC<{ contactInfo: string, ownerName?: string, compact?: boolean }> = ({ contactInfo, ownerName, compact }) => {
+    const phone = parsePhone(contactInfo);
+    const email = parseEmail(contactInfo);
+    const whatsappText = encodeURIComponent('Здравствуйте! Я нашёл(а) питомца, который может быть вашим. Посмотрите, пожалуйста, фото на сайте Поиск Питомцев.');
+
+    if (!phone && !email) return null;
+
+    if (compact) {
+        return (
+            <div className="flex flex-wrap gap-2">
+                {phone && (
+                    <>
+                        <a href={`tel:${phone}`} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white text-xs font-bold rounded-lg hover:bg-green-700 transition-colors shadow-sm">
+                            <PhoneIcon className="w-3.5 h-3.5" /> Позвонить
+                        </a>
+                        <a href={`https://wa.me/${phone.replace('+', '')}?text=${whatsappText}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#25D366] text-white text-xs font-bold rounded-lg hover:bg-[#1da851] transition-colors shadow-sm">
+                            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.625.846 5.059 2.284 7.034L.789 23.492a.75.75 0 00.917.918l4.462-1.494A11.945 11.945 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-2.24 0-4.326-.733-6.016-1.971l-.42-.312-2.646.886.886-2.646-.312-.42A9.935 9.935 0 012 12C2 6.486 6.486 2 12 2s10 4.486 10 10-4.486 10-10 10z"/></svg>
+                            WhatsApp
+                        </a>
+                        <a href={`https://t.me/${phone}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#0088cc] text-white text-xs font-bold rounded-lg hover:bg-[#006da3] transition-colors shadow-sm">
+                            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+                            Telegram
+                        </a>
+                    </>
+                )}
+                {email && !phone && (
+                    <a href={`mailto:${email}?subject=Найден похожий питомец&body=Здравствуйте! Я нашёл(а) питомца, который может быть вашим.`} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 transition-colors shadow-sm">
+                        Написать на почту
+                    </a>
+                )}
+            </div>
+        );
+    }
+
+    return (
+        <div className="flex flex-col sm:flex-row gap-3">
+            {phone && (
+                <>
+                    <a href={`tel:${phone}`} className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-green-600 text-white font-bold rounded-xl hover:bg-green-700 transition-colors shadow-md text-sm">
+                        <PhoneIcon className="w-5 h-5" /> Позвонить {phone}
+                    </a>
+                    <a href={`https://wa.me/${phone.replace('+', '')}?text=${whatsappText}`} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-[#25D366] text-white font-bold rounded-xl hover:bg-[#1da851] transition-colors shadow-md text-sm">
+                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.625.846 5.059 2.284 7.034L.789 23.492a.75.75 0 00.917.918l4.462-1.494A11.945 11.945 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-2.24 0-4.326-.733-6.016-1.971l-.42-.312-2.646.886.886-2.646-.312-.42A9.935 9.935 0 012 12C2 6.486 6.486 2 12 2s10 4.486 10 10-4.486 10-10 10z"/></svg>
+                        WhatsApp
+                    </a>
+                    <a href={`https://t.me/${phone}`} target="_blank" rel="noopener noreferrer" className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-[#0088cc] text-white font-bold rounded-xl hover:bg-[#006da3] transition-colors shadow-md text-sm">
+                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+                        Telegram
+                    </a>
+                </>
+            )}
+            {email && !phone && (
+                <a href={`mailto:${email}?subject=Найден похожий питомец&body=Здравствуйте! Я нашёл(а) питомца, который может быть вашим.`} className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-colors shadow-md text-sm">
+                    Написать на почту
+                </a>
+            )}
+        </div>
+    );
+};
+
+
 const ResultsView: React.FC<{ 
     pet: PetReport, 
     matches: MatchResult[], 
@@ -926,10 +1011,14 @@ const ResultsView: React.FC<{
         }).filter(Boolean) as (PetReport & { matchInfo: { confidence: number, reasoning: string } })[];
     }, [matches, candidates]);
 
+    const bestMatch = matchedPets.length > 0 ? matchedPets[0] : null;
+    const hasHighMatch = bestMatch && bestMatch.matchInfo.confidence >= 60;
+
     const colTitle = pet.type === 'found' ? 'Ваш запрос (найден)' : 'Ваш запрос (потерян)';
 
     return (
         <div className="container mx-auto px-4 md:px-6 py-8 md:py-12 min-h-screen">
+
             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
                 <div>
@@ -1049,15 +1138,23 @@ const ResultsView: React.FC<{
                                         {/* Floating match score badge */}
                                         <div className="absolute -top-3 -right-2 z-20 flex flex-col items-center">
                                             <div className={`text-sm font-bold px-3 py-1.5 rounded-full shadow-lg border-2 border-white ${
-                                                p.matchInfo.confidence > 0.8 ? 'bg-green-500 text-white' :
-                                                p.matchInfo.confidence > 0.5 ? 'bg-blue-500 text-white' :
+                                                p.matchInfo.confidence > 80 ? 'bg-green-500 text-white' :
+                                                p.matchInfo.confidence > 50 ? 'bg-blue-500 text-white' :
                                                 'bg-yellow-500 text-white'
                                             }`}>
                                                 {Math.round(p.matchInfo.confidence)}%
                                             </div>
                                         </div>
                                         
+                                        {/* Quick contact under each match card */}
                                         <PetCard pet={p} matchInfo={p.matchInfo} onClick={() => onPetClick(p)} onUserClick={onUserClick} />
+                                        {p.contactInfo && p.matchInfo.confidence >= 60 && (
+                                            <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-xl">
+                                                <p className="text-xs font-bold text-green-800 mb-1">Свяжитесь с владельцем!</p>
+                                                <p className="text-[10px] text-green-600 mb-2 leading-relaxed">Ваш звонок может спасти животное. Не уходите от питомца!</p>
+                                                <QuickContactButtons contactInfo={p.contactInfo} compact />
+                                            </div>
+                                        )}
                                     </div>
                                 ))}
                             </div>
@@ -1542,7 +1639,7 @@ export default function App() {
   
   const [matches, setMatches] = useState<MatchResult[]>([]);
   const [aiSearchRadius, setAiSearchRadius] = useState<number>(10);
-  const [pendingAutoSearchUserId, setPendingAutoSearchUserId] = useState<string | null>(null);
+  const [pendingAutoSearch, setPendingAutoSearch] = useState<{ userId: string, type: 'lost' | 'found' } | null>(null);
   const [locationFilter, setLocationFilter] = useState('');
   
   // New State for Geolocation
@@ -1647,6 +1744,7 @@ export default function App() {
           collarColor: data.collarColor,
           isChipped: data.isChipped,
           keptByFinder: data.keptByFinder,
+          lostDate: data.lostDate,
           contactInfo: data.contactInfo || '',
           photos: data.photos || (data.mainPhoto ? [data.mainPhoto] : []),
           mainPhoto: data.mainPhoto || data.photos?.[0] || null,
@@ -1779,7 +1877,10 @@ export default function App() {
         const sourceCandidates = isSearchingFound ? lostPets : foundPets;
         let candidates = sourceCandidates.filter(p => p.status !== 'resolved');
 
-        const refDate = petToMatch.date ? new Date(petToMatch.date).getTime() : 0;
+        // Для "Потерял" используем lostDate (дату потери), если указана
+        const refDate = petToMatch.type === 'lost' && petToMatch.lostDate
+            ? new Date(petToMatch.lostDate).getTime()
+            : petToMatch.date ? new Date(petToMatch.date).getTime() : 0;
         const now = Date.now();
         const threeMonthsAgo = now - 90 * 24 * 60 * 60 * 1000;
 
@@ -1787,10 +1888,15 @@ export default function App() {
             if (c.species !== petToMatch.species) return false;
             const cDate = c.date ? new Date(c.date).getTime() : 0;
             if (isSearchingFound) {
+                // "Нашёл" ищет среди "Потерял": не старше 3 месяцев, не позже даты находки
                 if (cDate < threeMonthsAgo) return false;
                 if (refDate && cDate > refDate) return false;
             } else {
-                if (refDate && cDate < refDate) return false;
+                // "Потерял" ищет среди "Нашёл": от (даты потери - 14 дней) до сегодня, не старше 3 месяцев
+                const bufferDays = 14 * 24 * 60 * 60 * 1000;
+                const searchFrom = refDate ? refDate - bufferDays : threeMonthsAgo;
+                if (cDate < searchFrom) return false;
+                if (cDate < threeMonthsAgo) return false;
             }
             return true;
         });
@@ -1894,14 +2000,11 @@ export default function App() {
     // Данные уже сохранены в Firebase через ReportForm
     // onSnapshot автоматически обновит стейт reports
     
-    if (formType === 'lost') {
-      console.log('✅ [App] Переходим на home (lost)');
-      setView('home');
-    } else if (formType === 'found') {
-      console.log('✅ [App] Устанавливаем флаг авто-поиска для found');
+    if (formType === 'lost' || formType === 'found') {
+      console.log(`✅ [App] Устанавливаем флаг авто-поиска для ${formType}`);
       const userId = localStorage.getItem('petFinderUserId');
       if (userId) {
-        setPendingAutoSearchUserId(userId);
+        setPendingAutoSearch({ userId, type: formType });
       }
       toast('Запускаем ИИ-поиск совпадений...', { icon: '🔍', duration: 4000 });
       setView('home');
@@ -1912,25 +2015,28 @@ export default function App() {
     }
   }, [currentUser, editingPet]);
 
-  // Автопоиск: когда reports обновятся из Firebase и есть pending флаг
+  // Автопоиск: когда reports обновятся из Firebase и есть pending флаг (для "Нашёл" и "Потерял")
   useEffect(() => {
-    if (!pendingAutoSearchUserId) return;
-    // Находим самое свежее found-объявление этого пользователя
-    const myFoundPets = foundPets
-      .filter(p => p.userId === pendingAutoSearchUserId && p.status === 'active')
+    if (!pendingAutoSearch) return;
+    const { userId, type } = pendingAutoSearch;
+    
+    // Для "found" ищем свежее found-объявление, для "lost" — свежее lost-объявление
+    const targetPets = type === 'found' ? foundPets : lostPets;
+    const myPets = targetPets
+      .filter(p => p.userId === userId && p.status === 'active')
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     
-    if (myFoundPets.length > 0) {
-      const newestFound = myFoundPets[0];
+    if (myPets.length > 0) {
+      const newest = myPets[0];
       // Проверяем что оно свежее (< 60 секунд)
-      const age = Date.now() - new Date(newestFound.date).getTime();
+      const age = Date.now() - new Date(newest.date).getTime();
       if (age < 60000) {
-        console.log('🤖 [AutoSearch] Запускаем авто-поиск для:', newestFound.id);
-        setPendingAutoSearchUserId(null);
-        handleStartAiSearch(newestFound);
+        console.log(`🤖 [AutoSearch] Запускаем авто-поиск для ${type}:`, newest.id);
+        setPendingAutoSearch(null);
+        handleStartAiSearch(newest);
       }
     }
-  }, [foundPets, pendingAutoSearchUserId, handleStartAiSearch]);
+  }, [foundPets, lostPets, pendingAutoSearch, handleStartAiSearch]);
 
   const handleDelete = async (petId: string) => {
     // Проверка прав доступа: только владелец может удалить
